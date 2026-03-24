@@ -216,6 +216,33 @@ export class EntriesService {
   }
 
   /**
+   * Mark a calendar entry as synced to Google Calendar.
+   */
+  async markSynced(id: string, googleEventId: string): Promise<void> {
+    await this.prisma.calendarEntry.update({
+      where: { id },
+      data: {
+        syncStatus: CalendarSyncStatus.synced,
+        googleEventId,
+        lastSyncedAt: new Date(),
+      },
+    });
+  }
+
+  /**
+   * Mark a calendar entry as deleted in Google Calendar.
+   */
+  async markSyncDeleted(id: string): Promise<void> {
+    await this.prisma.calendarEntry.update({
+      where: { id },
+      data: {
+        syncStatus: CalendarSyncStatus.deleted,
+        lastSyncedAt: new Date(),
+      },
+    });
+  }
+
+  /**
    * List upload history for a user.
    */
   async listUploads(userId: string) {
