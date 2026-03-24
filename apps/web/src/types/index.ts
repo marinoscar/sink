@@ -92,3 +92,31 @@ export interface DeviceAuthorizationResponse {
   success: boolean;
   message: string;
 }
+
+export interface PersonalAccessToken {
+  id: string;
+  name: string;
+  expiresAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  isActive: boolean;
+}
+
+export interface PersonalAccessTokensResponse {
+  items: PersonalAccessToken[];
+  meta: {
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+  };
+}
+
+export interface CreateTokenResponse {
+  id: string;
+  name: string;
+  token: string;
+  expiresAt: string;
+  createdAt: string;
+}

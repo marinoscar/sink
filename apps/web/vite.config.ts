@@ -6,6 +6,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    allowedHosts: ['sink.dev.marin.cr'],
     proxy: {
       '/api': {
         target: 'http://localhost:3000',

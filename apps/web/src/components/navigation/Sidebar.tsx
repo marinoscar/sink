@@ -16,6 +16,7 @@ import {
   Settings as SettingsIcon,
   AdminPanelSettings as AdminIcon,
   People as PeopleIcon,
+  Key as KeyIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -44,6 +45,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       label: 'User Settings',
       icon: <SettingsIcon />,
       path: '/settings',
+      visible: true,
+    },
+    {
+      label: 'Access Tokens',
+      icon: <KeyIcon />,
+      path: '/settings/tokens',
       visible: true,
     },
     {

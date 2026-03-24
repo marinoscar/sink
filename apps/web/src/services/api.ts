@@ -199,6 +199,8 @@ import type {
   UserListItem,
   DeviceActivationInfo,
   DeviceAuthorizationResponse,
+  PersonalAccessTokensResponse,
+  CreateTokenResponse,
 } from '../types';
 
 // Allowlist API
@@ -276,4 +278,27 @@ export async function authorizeDevice(
     userCode,
     approve,
   });
+}
+
+// Personal Access Tokens API
+export async function getTokens(params?: {
+  page?: number;
+  pageSize?: number;
+}): Promise<PersonalAccessTokensResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set('page', String(params.page));
+  if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+
+  return api.get<PersonalAccessTokensResponse>(`/tokens?${searchParams}`);
+}
+
+export async function createToken(
+  name: string,
+  expiresInHours: number,
+): Promise<CreateTokenResponse> {
+  return api.post<CreateTokenResponse>('/tokens', { name, expiresInHours });
+}
+
+export async function revokeToken(id: string): Promise<void> {
+  await api.delete<void>(`/tokens/${id}`);
 }

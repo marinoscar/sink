@@ -234,14 +234,25 @@ cd apps/web && npm test
 # Generate Prisma client after schema changes
 cd apps/api && npm run prisma:generate
 
-# Create a new migration (development)
-cd apps/api && npm run prisma:migrate:dev -- --name <migration_name>
+# IMPORTANT: Prisma migrations and seeds MUST use DATABASE_URL constructed
+# from the values in infra/compose/.env. The database is external (not a
+# Docker container in this project). Always build DATABASE_URL from the
+# POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD, and
+# POSTGRES_DB values in infra/compose/.env.
+#
+# Example (read values from .env first):
+#   DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DB" npx prisma migrate dev --name <name>
+#   DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DB" npx prisma db seed
+#
+# Or run inside the API container which has the env vars already set:
+#   docker exec sink-api-1 sh -c "node scripts/prisma-env.js migrate deploy"
+#   docker exec sink-api-1 sh -c "node scripts/prisma-env.js db seed"
+
+# Create a new migration (development) - from apps/api directory
+cd apps/api && DATABASE_URL="postgresql://<user>:<password>@<host>:<port>/<db>" npx prisma migrate dev --name <migration_name>
 
 # Apply migrations (production)
 cd apps/api && npm run prisma:migrate
-
-# Note: Use npm scripts (prisma:*) instead of direct npx commands
-# They automatically construct DATABASE_URL from individual env vars
 ```
 
 ## Service URLs (Development)

@@ -14,6 +14,8 @@ import { HealthModule } from './health/health.module';
 import { AllowlistModule } from './allowlist/allowlist.module';
 import { DeviceAuthModule } from './device-auth/device-auth.module';
 import { StorageModule } from './storage/storage.module';
+import { TokensModule } from './tokens/tokens.module';
+import { CalendarModule } from './calendar/calendar.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { TestAuthModule } from './test-auth/test-auth.module';
 
@@ -53,6 +55,8 @@ import configuration from './config/configuration';
     AllowlistModule,
     DeviceAuthModule,
     StorageModule,
+    TokensModule,
+    CalendarModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),
