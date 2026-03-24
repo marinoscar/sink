@@ -263,6 +263,13 @@ export default function CalendarSyncPage() {
               )}
             </Box>
 
+            {config?.isConnected && (config?.lastSyncStatus === 'token_revoked' || config?.lastSyncStatus === 'auth_error') && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                Your Google Calendar authorization has been revoked or expired.
+                Please disconnect and reconnect your Google account to resume syncing.
+              </Alert>
+            )}
+
             {config?.isConnected && (
               <>
                 <Divider sx={{ mb: 3 }} />
