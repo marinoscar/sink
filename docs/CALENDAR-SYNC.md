@@ -428,6 +428,55 @@ Authorization: Bearer <token>
 
 ---
 
+## Google Calendar Token Lifecycle
+
+This section explains how Sink manages Google OAuth tokens for Calendar Sync, what causes tokens to expire or become invalid, and how to recover when that happens.
+
+### Access tokens
+
+Google access tokens have a TTL of approximately 60 minutes. Sink uses the `googleapis` `OAuth2Client`, which **automatically exchanges the stored refresh token for a new access token** whenever the current one is expired or near expiry. No manual intervention is required; this happens transparently on every sync cycle.
+
+### Refresh tokens
+
+Refresh tokens are long-lived credentials issued once during the Google OAuth consent flow. Sink requests them with `access_type: offline` and `prompt: consent`, which forces Google to issue a fresh refresh token on each consent. The token is stored encrypted in the database using AES-256-GCM; it is never exposed in API responses or logs.
+
+### When a refresh token expires or is revoked
+
+Despite being long-lived, a refresh token can become invalid in several scenarios:
+
+- **User revokes access** — the user removes Sink from their authorized apps at myaccount.google.com → Security → Third-party apps.
+- **OAuth app is in "Testing" mode** — Google automatically expires all refresh tokens after 7 days for apps that have not completed the verification/publishing process.
+- **Password or security event** — Google may invalidate tokens when the account password changes or suspicious activity is detected.
+- **50-token limit per account** — Google allows at most 50 outstanding refresh tokens per app per Google account. Issuing a 51st invalidates the oldest one.
+
+### Automatic recovery
+
+When the sync engine calls a Google Calendar API and receives an `invalid_grant` (or similar auth error), it:
+
+1. Marks the user's calendar sync as disabled.
+2. Sets `lastSyncStatus` to `token_revoked`.
+3. Stops retrying until the user reconnects.
+
+The user will see a "Reconnect required" warning on the Calendar Sync page.
+
+### Manual recovery
+
+To restore sync after a token revocation:
+
+1. Navigate to the **Calendar Sync** page in the Sink UI.
+2. Click **Disconnect** to remove the stale credentials.
+3. Click **Connect Google Calendar** and complete the consent flow.
+
+Because the OAuth flow uses `prompt: consent`, Google will always issue a new refresh token regardless of whether it had one on file for Sink.
+
+### Best practices
+
+- **Publish your OAuth consent screen.** While in "Testing" mode, refresh tokens expire after 7 days. Complete the Google verification process or move to production status to get long-lived tokens.
+- **Avoid creating excessive OAuth connections.** Each time a user reconnects, Sink issues a new refresh token. With many users, stale entries count toward the 50-token-per-account limit. Encourage users to disconnect cleanly rather than reconnecting repeatedly.
+- **Monitor sync status in logs and observability.** Look for `auth_error` log entries or `lastSyncStatus: token_revoked` in the database to identify users who need to reconnect before they notice it themselves.
+
+---
+
 ## PowerShell Script Example (sync-calendar.ps1)
 
 The script below reads an Outlook calendar JSON export from disk and uploads it to Sink. It is designed for use in Task Scheduler or manual invocation.
