@@ -120,3 +120,43 @@ export interface CreateTokenResponse {
   expiresAt: string;
   createdAt: string;
 }
+
+// Calendar Sync
+export interface CalendarSyncConfig {
+  enabled: boolean;
+  calendarId: string;
+  syncFrequencyMinutes: number;
+  googleEmail: string | null;
+  isConnected: boolean;
+  lastSyncAt: string | null;
+  lastSyncStatus: string | null;
+}
+
+export interface CalendarSyncLog {
+  id: string;
+  startedAt: string;
+  completedAt: string | null;
+  status: string;
+  entriesProcessed: number;
+  entriesCreated: number;
+  entriesUpdated: number;
+  entriesDeleted: number;
+  errorMessage: string | null;
+  errorDetails: unknown | null;
+}
+
+export interface CalendarSyncLogsResponse {
+  items: CalendarSyncLog[];
+  meta: {
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+  };
+}
+
+export interface GoogleCalendarListItem {
+  id: string;
+  summary: string;
+  primary: boolean;
+}

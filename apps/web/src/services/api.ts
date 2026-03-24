@@ -201,6 +201,10 @@ import type {
   DeviceAuthorizationResponse,
   PersonalAccessTokensResponse,
   CreateTokenResponse,
+  CalendarSyncConfig,
+  CalendarSyncLog,
+  CalendarSyncLogsResponse,
+  GoogleCalendarListItem,
 } from '../types';
 
 // Allowlist API
@@ -301,4 +305,42 @@ export async function createToken(
 
 export async function revokeToken(id: string): Promise<void> {
   await api.delete<void>(`/tokens/${id}`);
+}
+
+// Calendar Sync API
+export async function getCalendarSyncConfig(): Promise<CalendarSyncConfig> {
+  return api.get<CalendarSyncConfig>('/calendar/sync/config');
+}
+
+export async function updateCalendarSyncConfig(
+  data: Partial<Pick<CalendarSyncConfig, 'enabled' | 'calendarId' | 'syncFrequencyMinutes'>>,
+): Promise<CalendarSyncConfig> {
+  return api.patch<CalendarSyncConfig>('/calendar/sync/config', data);
+}
+
+export async function triggerCalendarSync(): Promise<CalendarSyncLog> {
+  return api.post<CalendarSyncLog>('/calendar/sync/trigger');
+}
+
+export async function getCalendarSyncLogs(params?: {
+  page?: number;
+  pageSize?: number;
+}): Promise<CalendarSyncLogsResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set('page', String(params.page));
+  if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+  return api.get<CalendarSyncLogsResponse>(`/calendar/sync/logs?${searchParams}`);
+}
+
+export async function disconnectGoogleCalendar(): Promise<void> {
+  await api.post<void>('/calendar/sync/auth/disconnect');
+}
+
+export async function getGoogleCalendars(): Promise<GoogleCalendarListItem[]> {
+  return api.get<GoogleCalendarListItem[]>('/calendar/sync/calendars');
+}
+
+export function getGoogleCalendarAuthUrl(): string {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
+  return `${baseUrl}/calendar/sync/auth/google`;
 }
