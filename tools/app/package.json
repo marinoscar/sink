@@ -1,7 +1,7 @@
 {
   "name": "@enterprise/app-cli",
   "version": "1.0.0",
-  "description": "CLI for managing EnterpriseAppBase development environment and API",
+  "description": "CLI for managing Sink development environment and API",
   "type": "module",
   "main": "dist/index.js",
   "bin": {

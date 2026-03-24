@@ -18,7 +18,7 @@ const program = new Command();
 
 program
   .name('app')
-  .description('EnterpriseAppBase CLI - Development and API management tool')
+  .description('Sink CLI - Development and API management tool')
   .version('1.0.0')
   .option('-i, --interactive', 'Force interactive mode');
 
@@ -90,7 +90,7 @@ Examples:
 
 Documentation:
   See README.md for full documentation
-  GitHub: https://github.com/your-org/EnterpriseAppBase
+  GitHub: https://github.com/your-org/sink
 `
 );
 

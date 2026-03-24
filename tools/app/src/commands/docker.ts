@@ -45,7 +45,7 @@ export async function startServices(
   service?: string,
   options: DockerOptions = {}
 ): Promise<void> {
-  output.info('Starting EnterpriseAppBase services...');
+  output.info('Starting Sink services...');
 
   if (options.otel) {
     output.info('Including OpenTelemetry observability stack...');
@@ -73,7 +73,7 @@ export async function startServices(
  * Stop services
  */
 export async function stopServices(service?: string): Promise<void> {
-  output.info('Stopping EnterpriseAppBase services...');
+  output.info('Stopping Sink services...');
 
   const composeArgs = getComposeArgs();
 
@@ -100,7 +100,7 @@ export async function stopServices(service?: string): Promise<void> {
  * Restart services
  */
 export async function restartServices(service?: string): Promise<void> {
-  output.info('Restarting EnterpriseAppBase services...');
+  output.info('Restarting Sink services...');
 
   const composeArgs = getComposeArgs();
 
@@ -131,7 +131,7 @@ export async function rebuildServices(
   service?: string,
   options: DockerOptions = {}
 ): Promise<void> {
-  output.info('Rebuilding EnterpriseAppBase services (no cache)...');
+  output.info('Rebuilding Sink services (no cache)...');
 
   if (options.otel) {
     output.info('Including OpenTelemetry observability stack...');
@@ -205,7 +205,7 @@ export async function cleanServices(): Promise<void> {
   const confirmed = await confirm('Are you sure?');
 
   if (confirmed) {
-    output.info('Cleaning up EnterpriseAppBase services and volumes...');
+    output.info('Cleaning up Sink services and volumes...');
     const composeArgs = getComposeArgs();
     const code = await dockerCompose(composeArgs, ['down', '-v']);
 
@@ -229,7 +229,7 @@ export function registerDockerCommands(program: Command): void {
   if (!valid) {
     output.error('ERROR: Required files not found:');
     missing.forEach((p) => output.error(`  - ${p}`));
-    output.error('Make sure you are running from the EnterpriseAppBase repository.');
+    output.error('Make sure you are running from the Sink repository.');
     process.exit(1);
   }
 

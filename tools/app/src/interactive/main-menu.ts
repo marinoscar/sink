@@ -15,7 +15,7 @@ import { getIcon } from '../utils/config.js';
  */
 export async function showMainMenu(): Promise<void> {
   output.blank();
-  output.bold('EnterpriseAppBase CLI');
+  output.bold('Sink CLI');
   output.dim('Interactive mode - Use arrow keys to navigate');
   output.blank();
 

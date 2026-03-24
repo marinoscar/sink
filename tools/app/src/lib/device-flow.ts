@@ -51,7 +51,7 @@ export async function loginWithDeviceFlow(): Promise<AuthTokens> {
     },
     body: JSON.stringify({
       clientInfo: {
-        deviceName: 'EnterpriseAppBase CLI',
+        deviceName: 'Sink CLI',
         userAgent: 'app-cli/1.0.0',
       },
     }),
