@@ -139,6 +139,23 @@ export class SyncConfigService {
   }
 
   /**
+   * Disables sync and records the reason (e.g., token_revoked).
+   * Sets enabled=false and lastSyncStatus to the reason.
+   * Does NOT clear the refresh token - it stays for diagnostics until
+   * the user explicitly disconnects or reconnects.
+   */
+  async disableWithReason(userId: string, reason: string): Promise<void> {
+    await this.prisma.calendarSyncConfig.updateMany({
+      where: { userId },
+      data: {
+        enabled: false,
+        lastSyncStatus: reason,
+      },
+    });
+    this.logger.warn(`Sync disabled for user ${userId}: ${reason}`);
+  }
+
+  /**
    * Returns all sync configs that are enabled, have a refresh token,
    * and whose next sync time has arrived (lastSyncAt + frequency <= now).
    */

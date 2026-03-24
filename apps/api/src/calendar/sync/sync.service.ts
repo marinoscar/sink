@@ -116,6 +116,12 @@ export class CalendarSyncService {
           }
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+
+          // If this is an auth error, no point continuing - all entries will fail
+          if (this.isTokenRevocationError(err)) {
+            throw err; // Let the outer catch handle it
+          }
+
           errors.push({ entryId: entry.id, error: errorMsg });
           this.logger.warn(`Failed to sync entry ${entry.id}: ${errorMsg}`);
         }
@@ -149,16 +155,27 @@ export class CalendarSyncService {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
 
+      // Detect token revocation / auth errors and auto-disable sync
+      const isAuthError = this.isTokenRevocationError(err);
+      if (isAuthError) {
+        this.logger.warn(
+          `Google token revoked for user ${userId}, disabling sync. User must reconnect.`,
+        );
+        await this.syncConfigService.disableWithReason(userId, 'token_revoked');
+      }
+
       const log = await this.createLog(
         config.id,
         userId,
         startedAt,
-        'error',
+        isAuthError ? 'auth_error' : 'error',
         0, 0, 0, 0,
-        errorMsg,
+        isAuthError
+          ? 'Google authorization revoked. Please reconnect your Google Calendar account.'
+          : errorMsg,
       );
 
-      await this.updateConfigLastSync(config.id, 'error');
+      await this.updateConfigLastSync(config.id, isAuthError ? 'auth_error' : 'error');
 
       this.logger.error(
         `Calendar sync failed for user ${userId}: ${errorMsg}`,
@@ -166,6 +183,24 @@ export class CalendarSyncService {
 
       return log;
     }
+  }
+
+  /**
+   * Detects Google OAuth token revocation errors.
+   * These indicate the refresh token is no longer valid and the user
+   * must re-authorize via the consent screen.
+   */
+  private isTokenRevocationError(err: unknown): boolean {
+    if (!(err instanceof Error)) return false;
+    const message = err.message.toLowerCase();
+    // Google returns these for revoked/expired refresh tokens
+    return (
+      message.includes('invalid_grant') ||
+      message.includes('token has been expired or revoked') ||
+      message.includes('token has been revoked') ||
+      message.includes('refresh token is invalid') ||
+      message.includes('unauthorized_client')
+    );
   }
 
   private async createLog(
