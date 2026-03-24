@@ -78,6 +78,11 @@ export default () => {
     partSize: parseInt(process.env.STORAGE_PART_SIZE || '10485760', 10), // 10MB default
   },
 
+  // Calendar Sync
+  calendar: {
+    encryptionKey: process.env.CALENDAR_ENCRYPTION_KEY || '',
+  },
+
   logLevel: process.env.LOG_LEVEL || 'info',
   };
 };

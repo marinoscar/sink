@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException, forwardRef, Inject } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EntriesService } from '../entries/entries.service';
@@ -15,7 +15,6 @@ export class CalendarSyncService {
     private readonly prisma: PrismaService,
     private readonly entriesService: EntriesService,
     private readonly syncConfigService: SyncConfigService,
-    @Inject(forwardRef(() => GoogleCalendarClient))
     private readonly googleClient: GoogleCalendarClient,
     private readonly configService: ConfigService,
   ) {}

@@ -9,8 +9,6 @@ import {
   ParseUUIDPipe,
   ParseIntPipe,
   DefaultValuePipe,
-  Inject,
-  forwardRef,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -43,7 +41,6 @@ import { calendar_v3 } from 'googleapis';
 export class SyncController {
   constructor(
     private readonly syncConfigService: SyncConfigService,
-    @Inject(forwardRef(() => CalendarSyncService))
     private readonly calendarSyncService: CalendarSyncService,
     private readonly googleClient: GoogleCalendarClient,
     private readonly configService: ConfigService,
