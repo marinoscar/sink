@@ -49,8 +49,8 @@ async function bootstrap() {
 
   // Swagger/OpenAPI setup
   const config = new DocumentBuilder()
-    .setTitle('Enterprise App API')
-    .setDescription('API documentation for the Enterprise App Foundation')
+    .setTitle('Sink API')
+    .setDescription('API documentation for Sink')
     .setVersion('1.0')
     .addBearerAuth(
       {
