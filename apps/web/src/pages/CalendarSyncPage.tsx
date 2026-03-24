@@ -270,100 +270,104 @@ export default function CalendarSyncPage() {
               </Alert>
             )}
 
-            {config?.isConnected && (
-              <>
-                <Divider sx={{ mb: 3 }} />
+            <Divider sx={{ mb: 3 }} />
 
-                {/* Calendar Picker */}
-                <Box sx={{ mb: 3 }}>
-                  <Typography variant="h6" gutterBottom>
-                    Sync Settings
-                  </Typography>
+            {/* Sync Settings - always visible */}
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Sync Settings
+              </Typography>
 
-                  <FormControl fullWidth sx={{ mb: 2 }}>
-                    <InputLabel id="calendar-select-label">Calendar</InputLabel>
-                    <Select
-                      labelId="calendar-select-label"
-                      value={localCalendarId}
-                      label="Calendar"
-                      onChange={(e) => setLocalCalendarId(e.target.value)}
-                    >
-                      {calendars.length === 0 && (
-                        <MenuItem value="" disabled>
-                          No calendars available
-                        </MenuItem>
-                      )}
-                      {calendars.map((cal) => (
-                        <MenuItem key={cal.id} value={cal.id}>
-                          {cal.summary}
-                          {cal.primary && (
-                            <Chip label="Primary" size="small" sx={{ ml: 1 }} />
-                          )}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-
-                  <FormControl fullWidth sx={{ mb: 2 }}>
-                    <InputLabel id="frequency-select-label">Sync Frequency</InputLabel>
-                    <Select
-                      labelId="frequency-select-label"
-                      value={localFrequency}
-                      label="Sync Frequency"
-                      onChange={(e) => setLocalFrequency(Number(e.target.value))}
-                    >
-                      {FREQUENCY_OPTIONS.map((opt) => (
-                        <MenuItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={localEnabled}
-                        onChange={(e) => setLocalEnabled(e.target.checked)}
-                      />
-                    }
-                    label="Enable automatic sync"
-                    sx={{ mb: 2 }}
-                  />
-                </Box>
-
-                {/* Last Sync Info */}
-                {(config.lastSyncAt || config.lastSyncStatus) && (
-                  <>
-                    <Divider sx={{ mb: 2 }} />
-                    <Box sx={{ mb: 3 }}>
-                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                        Last Sync
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                        <Typography variant="body2">
-                          {formatDateTime(config.lastSyncAt)}
-                        </Typography>
-                        {config.lastSyncStatus && (
-                          <StatusChip status={config.lastSyncStatus} />
-                        )}
-                      </Box>
-                    </Box>
-                  </>
-                )}
-
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <Button
-                    variant="contained"
-                    onClick={handleSave}
-                    disabled={isSaving}
-                    startIcon={isSaving ? <CircularProgress size={16} /> : undefined}
+              {/* Calendar Picker - only when connected */}
+              {config?.isConnected && (
+                <FormControl fullWidth sx={{ mb: 2 }}>
+                  <InputLabel id="calendar-select-label">Calendar</InputLabel>
+                  <Select
+                    labelId="calendar-select-label"
+                    value={localCalendarId}
+                    label="Calendar"
+                    onChange={(e) => setLocalCalendarId(e.target.value)}
                   >
-                    {isSaving ? 'Saving...' : 'Save'}
-                  </Button>
+                    {calendars.length === 0 && (
+                      <MenuItem value="" disabled>
+                        No calendars available
+                      </MenuItem>
+                    )}
+                    {calendars.map((cal) => (
+                      <MenuItem key={cal.id} value={cal.id}>
+                        {cal.summary}
+                        {cal.primary && (
+                          <Chip label="Primary" size="small" sx={{ ml: 1 }} />
+                        )}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
+
+              <FormControl fullWidth sx={{ mb: 2 }}>
+                <InputLabel id="frequency-select-label">Sync Frequency</InputLabel>
+                <Select
+                  labelId="frequency-select-label"
+                  value={localFrequency}
+                  label="Sync Frequency"
+                  onChange={(e) => setLocalFrequency(Number(e.target.value))}
+                >
+                  {FREQUENCY_OPTIONS.map((opt) => (
+                    <MenuItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={localEnabled}
+                    onChange={(e) => setLocalEnabled(e.target.checked)}
+                    disabled={!config?.isConnected}
+                  />
+                }
+                label={
+                  config?.isConnected
+                    ? 'Enable automatic sync'
+                    : 'Enable automatic sync (connect Google account first)'
+                }
+                sx={{ mb: 2 }}
+              />
+            </Box>
+
+            {/* Last Sync Info */}
+            {config && (config.lastSyncAt || config.lastSyncStatus) && (
+              <>
+                <Divider sx={{ mb: 2 }} />
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Last Sync
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                    <Typography variant="body2">
+                      {formatDateTime(config.lastSyncAt)}
+                    </Typography>
+                    {config.lastSyncStatus && (
+                      <StatusChip status={config.lastSyncStatus} />
+                    )}
+                  </Box>
                 </Box>
               </>
             )}
+
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button
+                variant="contained"
+                onClick={handleSave}
+                disabled={isSaving}
+                startIcon={isSaving ? <CircularProgress size={16} /> : undefined}
+              >
+                {isSaving ? 'Saving...' : 'Save'}
+              </Button>
+            </Box>
           </Box>
         </TabPanel>
 
