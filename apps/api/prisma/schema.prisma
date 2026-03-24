@@ -40,6 +40,7 @@ model User {
   personalAccessTokens      PersonalAccessToken[] @relation("UserPersonalAccessTokens")
   calendarUploads           CalendarUpload[] @relation("UserCalendarUploads")
   calendarEntries           CalendarEntry[]  @relation("UserCalendarEntries")
+  calendarSyncConfig        CalendarSyncConfig? @relation("UserCalendarSyncConfig")
 
   @@map("users")
 }
@@ -362,4 +363,47 @@ model CalendarEntry {
   @@index([userId, syncStatus])
   @@index([userId, isDeleted])
   @@map("calendar_entries")
+}
+
+model CalendarSyncConfig {
+  id                    String    @id @default(uuid()) @db.Uuid
+  userId                String    @unique @map("user_id") @db.Uuid
+  enabled               Boolean   @default(false)
+  calendarId            String    @default("primary") @map("calendar_id")
+  syncFrequencyMinutes  Int       @default(60) @map("sync_frequency_minutes")
+  encryptedRefreshToken String?   @map("encrypted_refresh_token")
+  googleEmail           String?   @map("google_email")
+  lastSyncAt            DateTime? @map("last_sync_at") @db.Timestamptz
+  lastSyncStatus        String?   @map("last_sync_status")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  user     User              @relation("UserCalendarSyncConfig", fields: [userId], references: [id], onDelete: Cascade)
+  syncLogs CalendarSyncLog[]
+
+  @@map("calendar_sync_configs")
+}
+
+model CalendarSyncLog {
+  id               String    @id @default(uuid()) @db.Uuid
+  configId         String    @map("config_id") @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  startedAt        DateTime  @map("started_at") @db.Timestamptz
+  completedAt      DateTime? @map("completed_at") @db.Timestamptz
+  status           String    // 'success' | 'error' | 'no_changes'
+  entriesProcessed Int       @default(0) @map("entries_processed")
+  entriesCreated   Int       @default(0) @map("entries_created")
+  entriesUpdated   Int       @default(0) @map("entries_updated")
+  entriesDeleted   Int       @default(0) @map("entries_deleted")
+  errorMessage     String?   @map("error_message")
+  errorDetails     Json?     @map("error_details") @db.JsonB
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  config CalendarSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([configId])
+  @@map("calendar_sync_logs")
 }
