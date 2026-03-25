@@ -191,17 +191,24 @@ export class SyncConfigService {
     userId: string,
     page: number,
     pageSize: number,
+    dateFilter?: string,
   ): Promise<SyncLogsListResponseDto> {
     const skip = (page - 1) * pageSize;
 
+    const startedAtFilter = this.resolveDateFilter(dateFilter);
+    const where = {
+      userId,
+      ...(startedAtFilter ? { startedAt: startedAtFilter } : {}),
+    };
+
     const [items, totalItems] = await Promise.all([
       this.prisma.calendarSyncLog.findMany({
-        where: { userId },
+        where,
         orderBy: { startedAt: 'desc' },
         skip,
         take: pageSize,
       }),
-      this.prisma.calendarSyncLog.count({ where: { userId } }),
+      this.prisma.calendarSyncLog.count({ where }),
     ]);
 
     return {
@@ -213,6 +220,48 @@ export class SyncConfigService {
         totalPages: Math.ceil(totalItems / pageSize),
       },
     };
+  }
+
+  /**
+   * Converts a named date filter into a Prisma date range filter object.
+   * All boundaries are computed in UTC.
+   */
+  private resolveDateFilter(
+    dateFilter?: string,
+  ): { gte: Date; lt?: Date } | null {
+    const now = new Date();
+
+    // Start of today in UTC
+    const startOfToday = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+
+    switch (dateFilter) {
+      case 'today':
+        return { gte: startOfToday };
+
+      case 'yesterday': {
+        const startOfYesterday = new Date(startOfToday);
+        startOfYesterday.setUTCDate(startOfYesterday.getUTCDate() - 1);
+        return { gte: startOfYesterday, lt: startOfToday };
+      }
+
+      case 'last7': {
+        const sevenDaysAgo = new Date(startOfToday);
+        sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 7);
+        return { gte: sevenDaysAgo };
+      }
+
+      case 'last30': {
+        const thirtyDaysAgo = new Date(startOfToday);
+        thirtyDaysAgo.setUTCDate(thirtyDaysAgo.getUTCDate() - 30);
+        return { gte: thirtyDaysAgo };
+      }
+
+      default:
+        // 'all' or undefined - no date constraint
+        return null;
+    }
   }
 
   async getLog(userId: string, logId: string): Promise<SyncLogResponseDto> {

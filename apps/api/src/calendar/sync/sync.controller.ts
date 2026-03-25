@@ -91,19 +91,26 @@ export class SyncController {
 
   /**
    * GET /calendar/sync/logs
-   * Returns paginated sync logs.
+   * Returns paginated sync logs, optionally filtered by date range.
    */
   @Get('logs')
   @ApiOperation({ summary: 'List calendar sync logs' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'pageSize', required: false, type: Number })
+  @ApiQuery({
+    name: 'dateFilter',
+    required: false,
+    enum: ['today', 'yesterday', 'last7', 'last30', 'all'],
+    description: 'Limit results to a date range (default: all)',
+  })
   @ApiResponse({ status: 200, description: 'Paginated sync logs' })
   async listLogs(
     @CurrentUser('id') userId: string,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
+    @Query('dateFilter') dateFilter?: string,
   ): Promise<{ data: SyncLogsListResponseDto }> {
-    const result = await this.syncConfigService.listLogs(userId, page, pageSize);
+    const result = await this.syncConfigService.listLogs(userId, page, pageSize, dateFilter);
     return { data: result };
   }
 
