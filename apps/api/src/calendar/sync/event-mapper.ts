@@ -1,5 +1,56 @@
 import { calendar_v3 } from 'googleapis';
 
+const WINDOWS_TO_IANA: Record<string, string> = {
+  'Eastern Standard Time': 'America/New_York',
+  'Central Standard Time': 'America/Chicago',
+  'Mountain Standard Time': 'America/Denver',
+  'Pacific Standard Time': 'America/Los_Angeles',
+  'Alaska Standard Time': 'America/Anchorage',
+  'Hawaiian Standard Time': 'Pacific/Honolulu',
+  'Atlantic Standard Time': 'America/Halifax',
+  'Newfoundland Standard Time': 'America/St_Johns',
+  'Central Europe Standard Time': 'Europe/Budapest',
+  'W. Europe Standard Time': 'Europe/Berlin',
+  'Romance Standard Time': 'Europe/Paris',
+  'GMT Standard Time': 'Europe/London',
+  'Greenwich Standard Time': 'Atlantic/Reykjavik',
+  'E. Europe Standard Time': 'Europe/Chisinau',
+  'FLE Standard Time': 'Europe/Kiev',
+  'GTB Standard Time': 'Europe/Bucharest',
+  'Russian Standard Time': 'Europe/Moscow',
+  'Israel Standard Time': 'Asia/Jerusalem',
+  'South Africa Standard Time': 'Africa/Johannesburg',
+  'India Standard Time': 'Asia/Kolkata',
+  'China Standard Time': 'Asia/Shanghai',
+  'Tokyo Standard Time': 'Asia/Tokyo',
+  'Korea Standard Time': 'Asia/Seoul',
+  'AUS Eastern Standard Time': 'Australia/Sydney',
+  'New Zealand Standard Time': 'Pacific/Auckland',
+  'Singapore Standard Time': 'Asia/Singapore',
+  'Arabian Standard Time': 'Asia/Dubai',
+  'SA Pacific Standard Time': 'America/Bogota',
+  'SA Eastern Standard Time': 'America/Cayenne',
+  'E. South America Standard Time': 'America/Sao_Paulo',
+  'Central America Standard Time': 'America/Guatemala',
+  'US Mountain Standard Time': 'America/Phoenix',
+  'Canada Central Standard Time': 'America/Regina',
+  'SA Western Standard Time': 'America/La_Paz',
+  'US Eastern Standard Time': 'America/Indianapolis',
+  'Venezuela Standard Time': 'America/Caracas',
+  'Central Pacific Standard Time': 'Pacific/Guadalcanal',
+  'Fiji Standard Time': 'Pacific/Fiji',
+  'SE Asia Standard Time': 'Asia/Bangkok',
+  'Taipei Standard Time': 'Asia/Taipei',
+  'West Asia Standard Time': 'Asia/Tashkent',
+  'Pakistan Standard Time': 'Asia/Karachi',
+  'Central Asia Standard Time': 'Asia/Almaty',
+  UTC: 'UTC',
+};
+
+function toIanaTimeZone(tz: string): string {
+  return WINDOWS_TO_IANA[tz] || tz;
+}
+
 export interface RecurrencePattern {
   type: string;
   interval?: number;
@@ -14,20 +65,20 @@ export interface RecurrencePattern {
 
 export interface CalendarEntryData {
   entryId: string;
-  lastModified: string;
-  subject: string;
+  lastModified?: string | null;
+  subject?: string | null;
   location?: string;
   start: string;
-  startTimeZone: string;
+  startTimeZone?: string | null;
   end: string;
-  endTimeZone: string;
-  isAllDay: boolean;
-  isRecurring: boolean;
-  attendeeCount: number;
-  attendeeDomains: string[];
+  endTimeZone?: string | null;
+  isAllDay?: boolean | null;
+  isRecurring?: boolean | null;
+  attendeeCount?: number | null;
+  attendeeDomains?: string[] | null;
   organizerDomain?: string;
-  busyStatus: 'Free' | 'Tentative' | 'Busy' | 'OutOfOffice' | 'WorkingElsewhere';
-  responseStatus: string;
+  busyStatus?: 'Free' | 'Tentative' | 'Busy' | 'OutOfOffice' | 'WorkingElsewhere' | null;
+  responseStatus?: string | null;
   recurrencePattern?: RecurrencePattern;
 }
 
@@ -126,7 +177,7 @@ export function mapToGoogleEvent(
   data: CalendarEntryData,
 ): calendar_v3.Schema$Event {
   const event: calendar_v3.Schema$Event = {
-    summary: data.subject,
+    summary: data.subject || 'No Subject',
   };
 
   // Location
@@ -142,8 +193,8 @@ export function mapToGoogleEvent(
     event.start = { date: startDate };
     event.end = { date: endDate };
   } else {
-    event.start = { dateTime: data.start, timeZone: data.startTimeZone };
-    event.end = { dateTime: data.end, timeZone: data.endTimeZone };
+    event.start = { dateTime: data.start, timeZone: toIanaTimeZone(data.startTimeZone || 'UTC') };
+    event.end = { dateTime: data.end, timeZone: toIanaTimeZone(data.endTimeZone || 'UTC') };
   }
 
   // Transparency (busy/free)
@@ -155,6 +206,11 @@ export function mapToGoogleEvent(
   }
 
   // Structured description block for traceability
+  const attendeeDomains = data.attendeeDomains || [];
+  const attendeeCount = data.attendeeCount || 0;
+  const responseStatus = data.responseStatus || '';
+  const busyStatus = data.busyStatus || 'Busy';
+
   const metaLines: string[] = [
     '--- Sink Calendar Sync ---',
     `Database ID: ${entryUuid}`,
@@ -163,12 +219,12 @@ export function mapToGoogleEvent(
   if (data.organizerDomain) {
     metaLines.push(`Organizer Domain: ${data.organizerDomain}`);
   }
-  if (data.attendeeDomains.length > 0) {
-    metaLines.push(`Attendee Domains: ${data.attendeeDomains.join(', ')}`);
+  if (attendeeDomains.length > 0) {
+    metaLines.push(`Attendee Domains: ${attendeeDomains.join(', ')}`);
   }
-  metaLines.push(`Attendee Count: ${data.attendeeCount}`);
-  metaLines.push(`Response Status: ${data.responseStatus}`);
-  metaLines.push(`Busy Status: ${data.busyStatus}`);
+  metaLines.push(`Attendee Count: ${attendeeCount}`);
+  metaLines.push(`Response Status: ${responseStatus}`);
+  metaLines.push(`Busy Status: ${busyStatus}`);
 
   event.description = metaLines.join('\n');
 
