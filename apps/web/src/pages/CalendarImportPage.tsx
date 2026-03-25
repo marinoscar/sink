@@ -13,7 +13,7 @@ import {
   TableRow,
 } from '@mui/material';
 import { UploadFile as UploadIcon } from '@mui/icons-material';
-import { uploadCalendarJson } from '../services/api';
+import { uploadCalendarJson, ApiError } from '../services/api';
 import type { CalendarUploadResponse } from '../types';
 
 export default function CalendarImportPage() {
@@ -51,7 +51,20 @@ export default function CalendarImportPage() {
       const response = await uploadCalendarJson(data);
       setResult(response);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
+      if (err instanceof ApiError) {
+        const parts = [`${err.message} (${err.status})`];
+        if (err.code) parts.push(`Code: ${err.code}`);
+        if (err.details) {
+          if (Array.isArray(err.details)) {
+            parts.push(...err.details.map((d: any) => d.message || String(d)));
+          } else if (typeof err.details === 'string') {
+            parts.push(err.details);
+          }
+        }
+        setError(parts.join('\n'));
+      } else {
+        setError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
+      }
     } finally {
       setIsUploading(false);
       // Reset the input so the same file can be re-selected
@@ -72,7 +85,7 @@ export default function CalendarImportPage() {
       </Box>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+        <Alert severity="error" sx={{ mb: 2, whiteSpace: 'pre-line' }} onClose={() => setError(null)}>
           {error}
         </Alert>
       )}
