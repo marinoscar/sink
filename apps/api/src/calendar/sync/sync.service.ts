@@ -186,6 +186,242 @@ export class CalendarSyncService {
   }
 
   /**
+   * Async variant of syncUser for use by the manual trigger endpoint.
+   * Creates an initial log record with status 'running', returns it immediately
+   * to the caller, then fires the actual sync in the background via setImmediate.
+   */
+  async syncUserAsync(userId: string): Promise<SyncLogResponseDto> {
+    const config = await this.prisma.calendarSyncConfig.findUnique({
+      where: { userId },
+    });
+
+    if (!config || !config.encryptedRefreshToken) {
+      throw new BadRequestException(
+        'Calendar sync not configured or not connected to Google',
+      );
+    }
+
+    const startedAt = new Date();
+
+    // Create the initial "running" log record
+    const runningLog = await this.prisma.calendarSyncLog.create({
+      data: {
+        configId: config.id,
+        userId,
+        startedAt,
+        completedAt: null,
+        status: 'running',
+        entriesProcessed: 0,
+        entriesCreated: 0,
+        entriesUpdated: 0,
+        entriesDeleted: 0,
+        errorMessage: null,
+        errorDetails: null,
+      },
+    });
+
+    // Fire actual sync in the background after this tick returns
+    setImmediate(() => {
+      this.executeSyncRun(runningLog.id, userId).catch((err) => {
+        this.logger.error(
+          `Unhandled error in background executeSyncRun for user ${userId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    });
+
+    return {
+      id: runningLog.id,
+      startedAt: runningLog.startedAt.toISOString(),
+      completedAt: null,
+      status: runningLog.status,
+      entriesProcessed: 0,
+      entriesCreated: 0,
+      entriesUpdated: 0,
+      entriesDeleted: 0,
+      errorMessage: null,
+      errorDetails: null,
+    };
+  }
+
+  /**
+   * Executes the full sync run for a user and updates an existing log record
+   * (identified by logId) with the final outcome. Called by syncUserAsync in
+   * the background via setImmediate.
+   */
+  private async executeSyncRun(logId: string, userId: string): Promise<void> {
+    const config = await this.prisma.calendarSyncConfig.findUnique({
+      where: { userId },
+    });
+
+    // Guard: config may have been removed between the async trigger and this tick
+    if (!config || !config.encryptedRefreshToken) {
+      await this.prisma.calendarSyncLog.update({
+        where: { id: logId },
+        data: {
+          status: 'error',
+          completedAt: new Date(),
+          errorMessage: 'Sync config missing or token disconnected at execution time',
+        },
+      });
+      return;
+    }
+
+    let entriesCreated = 0;
+    let entriesUpdated = 0;
+    let entriesDeleted = 0;
+    const errors: Array<{ entryId: string; error: string }> = [];
+
+    try {
+      // Set up Google Calendar API client
+      const refreshToken =
+        await this.syncConfigService.getDecryptedRefreshToken(userId);
+      if (!refreshToken) {
+        throw new Error('Could not decrypt refresh token');
+      }
+
+      const clientId = this.configService.get<string>('google.clientId')!;
+      const clientSecret = this.configService.get<string>('google.clientSecret')!;
+
+      const oauth2Client = this.googleClient.createOAuth2Client(
+        clientId,
+        clientSecret,
+        '',
+      );
+      oauth2Client.setCredentials({ refresh_token: refreshToken });
+      const calendar = this.googleClient.getCalendarApi(oauth2Client);
+
+      // Fetch all pending entries for this user
+      const pendingEntries = await this.entriesService.getPendingSync(userId);
+
+      if (pendingEntries.length === 0) {
+        await this.prisma.calendarSyncLog.update({
+          where: { id: logId },
+          data: {
+            status: 'no_changes',
+            completedAt: new Date(),
+            entriesProcessed: 0,
+            entriesCreated: 0,
+            entriesUpdated: 0,
+            entriesDeleted: 0,
+          },
+        });
+        await this.updateConfigLastSync(config.id, 'no_changes');
+        this.logger.log(`Calendar sync for user ${userId}: no changes`);
+        return;
+      }
+
+      // Process each pending entry
+      for (const entry of pendingEntries) {
+        try {
+          const data = entry.data as unknown as CalendarEntryData;
+
+          if (entry.isDeleted && entry.googleEventId) {
+            await this.googleClient.deleteEvent(
+              calendar,
+              config.calendarId,
+              entry.googleEventId,
+            );
+            await this.entriesService.markSyncDeleted(entry.id);
+            entriesDeleted++;
+          } else if (!entry.isDeleted && entry.googleEventId) {
+            const event = mapToGoogleEvent(entry.entryId, entry.id, data);
+            await this.googleClient.updateEvent(
+              calendar,
+              config.calendarId,
+              entry.googleEventId,
+              event,
+            );
+            await this.entriesService.markSynced(entry.id, entry.googleEventId);
+            entriesUpdated++;
+          } else if (!entry.isDeleted && !entry.googleEventId) {
+            const event = mapToGoogleEvent(entry.entryId, entry.id, data);
+            const googleEventId = await this.googleClient.createEvent(
+              calendar,
+              config.calendarId,
+              event,
+            );
+            await this.entriesService.markSynced(entry.id, googleEventId);
+            entriesCreated++;
+          } else if (entry.isDeleted && !entry.googleEventId) {
+            await this.entriesService.markSyncDeleted(entry.id);
+            entriesDeleted++;
+          }
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+
+          if (this.isTokenRevocationError(err)) {
+            throw err;
+          }
+
+          errors.push({ entryId: entry.id, error: errorMsg });
+          this.logger.warn(`Failed to sync entry ${entry.id}: ${errorMsg}`);
+        }
+      }
+
+      const status = errors.length > 0 ? 'error' : 'success';
+      const totalProcessed =
+        entriesCreated + entriesUpdated + entriesDeleted + errors.length;
+
+      await this.prisma.calendarSyncLog.update({
+        where: { id: logId },
+        data: {
+          status,
+          completedAt: new Date(),
+          entriesProcessed: totalProcessed,
+          entriesCreated,
+          entriesUpdated,
+          entriesDeleted,
+          errorMessage:
+            errors.length > 0 ? `${errors.length} entries failed` : null,
+          errorDetails: errors.length > 0 ? (errors as any) : null,
+        },
+      });
+
+      await this.updateConfigLastSync(config.id, status);
+      await this.pruneOldLogs(userId, 300);
+
+      this.logger.log(
+        `Calendar sync for user ${userId}: ${entriesCreated} created, ` +
+          `${entriesUpdated} updated, ${entriesDeleted} deleted, ${errors.length} errors`,
+      );
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      const isAuthError = this.isTokenRevocationError(err);
+
+      if (isAuthError) {
+        this.logger.warn(
+          `Google token revoked for user ${userId}, disabling sync. User must reconnect.`,
+        );
+        await this.syncConfigService.disableWithReason(userId, 'token_revoked');
+      }
+
+      await this.prisma.calendarSyncLog.update({
+        where: { id: logId },
+        data: {
+          status: isAuthError ? 'auth_error' : 'error',
+          completedAt: new Date(),
+          entriesProcessed: 0,
+          entriesCreated: 0,
+          entriesUpdated: 0,
+          entriesDeleted: 0,
+          errorMessage: isAuthError
+            ? 'Google authorization revoked. Please reconnect your Google Calendar account.'
+            : errorMsg,
+        },
+      });
+
+      await this.updateConfigLastSync(
+        config.id,
+        isAuthError ? 'auth_error' : 'error',
+      );
+
+      this.logger.error(
+        `Calendar sync failed for user ${userId}: ${errorMsg}`,
+      );
+    }
+  }
+
+  /**
    * Detects Google OAuth token revocation errors.
    * These indicate the refresh token is no longer valid and the user
    * must re-authorize via the consent screen.

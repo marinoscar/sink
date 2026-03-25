@@ -78,14 +78,19 @@ export class SyncController {
   /**
    * POST /calendar/sync/trigger
    * Manually triggers a sync run for the authenticated admin.
+   * Returns immediately with a log record in 'running' status while the
+   * actual sync executes in the background.
    */
   @Post('trigger')
   @ApiOperation({ summary: 'Manually trigger calendar sync' })
-  @ApiResponse({ status: 201, description: 'Sync log for the triggered run' })
+  @ApiResponse({
+    status: 201,
+    description: 'Initial sync log with status "running"; sync runs in background',
+  })
   async triggerSync(
     @CurrentUser('id') userId: string,
   ): Promise<{ data: SyncLogResponseDto }> {
-    const log = await this.calendarSyncService.syncUser(userId);
+    const log = await this.calendarSyncService.syncUserAsync(userId);
     return { data: log };
   }
 
