@@ -5,12 +5,12 @@
 # Location on VPS: /opt/infra/apps/sink/install-sink.sh
 #
 # This script:
-#   1. Creates data directories for persistent volumes
+#   1. Creates the application directory structure
 #   2. Clones (or pulls) the Sink repository
 #   3. Validates that .env exists
 #   4. Generates production compose.yml and nginx proxy config
 #   5. Builds images and runs Prisma migrations
-#   6. Starts all services (api, web, nginx, db)
+#   6. Starts all services (api, web, nginx)
 #   7. Verifies service health
 #
 # Usage:
@@ -18,8 +18,12 @@
 #   chmod +x install-sink.sh
 #   ./install-sink.sh
 #
-# For updates, just run the script again. It pulls latest code,
-# rebuilds images, and runs any new migrations.
+# For updates, use update.sh instead.
+#
+# Prerequisites:
+#   - Docker and Docker Compose installed
+#   - PostgreSQL accessible from the VPS (cloud-hosted or local)
+#   - .env file with production values
 # =============================================================================
 set -euo pipefail
 
@@ -82,13 +86,18 @@ if [ ! -f "${SINK_DIR}/.env" ]; then
     log "    nano ${SINK_DIR}/.env"
     log ""
     log "  Required values to set:"
+    log "    - COMPOSE_PROJECT_NAME=sink"
     log "    - NODE_ENV=production"
     log "    - APP_URL=https://${DOMAIN}"
+    log "    - POSTGRES_HOST (your PostgreSQL hostname)"
+    log "    - POSTGRES_PASSWORD"
+    log "    - POSTGRES_SSL=true (if using cloud PostgreSQL)"
     log "    - JWT_SECRET (generate with: openssl rand -hex 32)"
-    log "    - POSTGRES_PASSWORD (generate with: openssl rand -hex 16)"
+    log "    - COOKIE_SECRET (generate with: openssl rand -hex 32)"
     log "    - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET"
     log "    - GOOGLE_CALLBACK_URL=https://${DOMAIN}/api/auth/google/callback"
     log "    - S3_BUCKET, S3_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY"
+    log "    - CALENDAR_ENCRYPTION_KEY (generate with: openssl rand -hex 32)"
     log "    - INITIAL_ADMIN_EMAIL"
     log ""
     log "  Then run this script again."
@@ -104,6 +113,13 @@ log ""
 log "[4/7] Generating production configuration..."
 
 # ---- compose.yml ----
+# Production-ready Docker Compose file that:
+#   - Binds nginx to 127.0.0.1:8321 (VPS proxy routes here)
+#   - API connects to PostgreSQL over the network (via env vars)
+#   - Uses an internal sink-internal network for service-to-service
+#   - Uses the production nginx config (web:80 upstream)
+#   - Sets restart policies and resource limits
+
 cat > "${SINK_DIR}/compose.yml" << 'COMPOSE_EOF'
 # =============================================================================
 # Sink — Production Docker Compose
@@ -122,14 +138,13 @@ services:
     ports:
       - "127.0.0.1:8321:80"
     volumes:
-      - ./repo/infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./repo/infra/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - api
       - web
     restart: unless-stopped
     networks:
       - sink-internal
-      - proxy
 
   # ---------------------------------------------------------------------------
   # API — NestJS Backend (Fastify)
@@ -174,17 +189,17 @@ services:
 # Networks
 # =============================================================================
 networks:
+  # Internal network for service-to-service communication
   sink-internal:
     driver: bridge
-
-  # Shared VPS proxy network (external, created by /opt/infra/proxy)
-  proxy:
-    external: true
 COMPOSE_EOF
 
 log "  compose.yml generated."
 
 # ---- VPS proxy nginx config ----
+# This file goes into /opt/infra/proxy/nginx/conf.d/ to route
+# sink.dev.marin.cr traffic to the sink-nginx container.
+
 cat > "${SINK_DIR}/sink.conf" << NGINX_EOF
 # =============================================================================
 # sink.dev.marin.cr — VPS Reverse Proxy Config
@@ -207,12 +222,12 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
-    # Allow large request bodies (calendar JSON uploads)
+    # Allow large request bodies (file uploads, calendar JSON)
     client_max_body_size 50m;
 
     # API routes
     location /api {
-        proxy_pass http://sink-nginx;
+        proxy_pass http://127.0.0.1:${HOST_PORT};
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -225,7 +240,7 @@ server {
 
     # Frontend (React SPA)
     location / {
-        proxy_pass http://sink-nginx;
+        proxy_pass http://127.0.0.1:${HOST_PORT};
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -239,6 +254,7 @@ server {
     listen 80;
     server_name ${DOMAIN};
 
+    # ACME challenge (Let's Encrypt)
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
     }
@@ -265,14 +281,30 @@ log "  Images built."
 log ""
 log "  Running database migrations..."
 
-docker compose run --rm -T api sh -c \
-    "npx prisma migrate deploy 2>/dev/null || npx prisma db push --accept-data-loss 2>/dev/null || echo 'Schema already up to date'"
+# Source .env to get database connection parameters
+set -a
+. "${SINK_DIR}/.env"
+set +a
 
-# Run seed to create default roles and permissions
-docker compose run --rm -T api sh -c \
-    "npx prisma db seed 2>/dev/null || echo 'Seed already applied or not needed'"
+# URL-encode the password (handles special characters like ! @ # etc.)
+ENCODED_PW=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${POSTGRES_PASSWORD}', safe=''))")
+
+DATABASE_URL="postgresql://${POSTGRES_USER}:${ENCODED_PW}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
+if [ "${POSTGRES_SSL:-false}" = "true" ]; then
+    DATABASE_URL="${DATABASE_URL}?sslmode=require"
+fi
+
+docker compose run --rm -T -e DATABASE_URL="${DATABASE_URL}" api sh -c \
+    "npx prisma migrate deploy"
 
 log "  Migrations complete."
+
+log "  Running database seeds..."
+
+docker compose run --rm -T -e DATABASE_URL="${DATABASE_URL}" -e INITIAL_ADMIN_EMAIL="${INITIAL_ADMIN_EMAIL}" api sh -c \
+    "npx prisma db seed"
+
+log "  Seeds complete."
 
 # ---------------------------------------------------------------------------
 # Step 6: Start all services
@@ -288,7 +320,7 @@ log "  All containers started."
 log "  Waiting for API to initialize..."
 API_READY=false
 for i in $(seq 1 60); do
-    if docker exec sink-api wget -qO- http://localhost:3000/api/health >/dev/null 2>&1; then
+    if docker exec sink-api wget -qO- http://localhost:3000/api/health/live >/dev/null 2>&1; then
         API_READY=true
         break
     fi
@@ -307,11 +339,13 @@ log ""
 log "[7/7] Verifying services..."
 sleep 3
 
+# Check containers are running
 RUNNING=$(docker compose ps --format '{{.Name}}' 2>/dev/null | wc -l)
 log "  Containers running: ${RUNNING}"
 
-API_STATUS=$(docker exec sink-api wget -qO- http://localhost:3000/api/health 2>/dev/null || echo "FAIL")
-if echo "${API_STATUS}" | grep -qi "ok\|status"; then
+# Check API health
+API_STATUS=$(docker exec sink-api wget -qO- http://localhost:3000/api/health/live 2>/dev/null || echo "FAIL")
+if echo "${API_STATUS}" | grep -qi "ok\|status\|healthy"; then
     log "  API health:    OK"
 else
     log "  API health:    WARN (response: ${API_STATUS})"
@@ -342,6 +376,6 @@ log "   4. Configure Google OAuth redirect URI:"
 log "      https://${DOMAIN}/api/auth/google/callback"
 log ""
 log "   5. Verify:"
-log "      curl https://${DOMAIN}/api/health"
+log "      curl https://${DOMAIN}/api/health/live"
 log ""
 log "============================================"
