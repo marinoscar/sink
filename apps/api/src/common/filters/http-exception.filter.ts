@@ -40,7 +40,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         const resp = exceptionResponse as Record<string, unknown>;
         message = (resp.message as string) || message;
         code = (resp.code as string) || this.getCodeFromStatus(status);
-        details = resp.details;
+        details = resp.details || resp.errors;
       }
 
       code = this.getCodeFromStatus(status);
@@ -71,7 +71,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         exception instanceof Error ? exception.stack : exception,
       );
     } else {
-      this.logger.warn(`${request.method} ${request.url} - ${status}: ${message}`);
+      this.logger.warn(`${request.method} ${request.url} - ${status}: ${message}`, details ? JSON.stringify(details).slice(0, 500) : '');
     }
 
     // Fastify response - use code() and send()
