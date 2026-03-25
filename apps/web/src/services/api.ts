@@ -326,11 +326,17 @@ export async function triggerCalendarSync(): Promise<CalendarSyncLog> {
 export async function getCalendarSyncLogs(params?: {
   page?: number;
   pageSize?: number;
+  dateFilter?: string;
 }): Promise<CalendarSyncLogsResponse> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set('page', String(params.page));
   if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+  if (params?.dateFilter && params.dateFilter !== 'all') searchParams.set('dateFilter', params.dateFilter);
   return api.get<CalendarSyncLogsResponse>(`/calendar/sync/logs?${searchParams}`);
+}
+
+export async function getCalendarSyncLog(id: string): Promise<CalendarSyncLog> {
+  return api.get<CalendarSyncLog>(`/calendar/sync/logs/${id}`);
 }
 
 export async function disconnectGoogleCalendar(): Promise<void> {
