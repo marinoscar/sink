@@ -1,9 +1,10 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   getCalendarSyncConfig,
   updateCalendarSyncConfig,
   triggerCalendarSync,
   getCalendarSyncLogs,
+  getCalendarSyncLog,
   disconnectGoogleCalendar,
   getGoogleCalendars,
 } from '../services/api';
@@ -22,6 +23,24 @@ export function useCalendarSync() {
   const [isSaving, setIsSaving] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dateFilter, setDateFilter] = useState<string>('all');
+  const [activeSyncLog, setActiveSyncLog] = useState<CalendarSyncLog | null>(null);
+
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollingIntervalRef.current !== null) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+  }, []);
+
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      stopPolling();
+    };
+  }, [stopPolling]);
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -35,9 +54,9 @@ export function useCalendarSync() {
     }
   }, []);
 
-  const fetchLogs = useCallback(async (page = 1, pageSize = 20) => {
+  const fetchLogs = useCallback(async (page = 1, pageSize = 20, filter?: string) => {
     try {
-      const data = await getCalendarSyncLogs({ page, pageSize });
+      const data = await getCalendarSyncLogs({ page, pageSize, dateFilter: filter });
       setLogs(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load logs');
@@ -79,20 +98,45 @@ export function useCalendarSync() {
 
   const sync = useCallback(async (): Promise<CalendarSyncLog> => {
     setIsSyncing(true);
+    stopPolling();
+
     try {
       const log = await triggerCalendarSync();
       setError(null);
-      // Refresh logs and config after sync
-      await Promise.all([fetchLogs(), fetchConfig()]);
+      setActiveSyncLog(log);
+
+      // If the log is already completed (synchronous path), refresh immediately
+      if (log.completedAt !== null) {
+        setActiveSyncLog(null);
+        setIsSyncing(false);
+        await Promise.all([fetchLogs(1, 20, dateFilter), fetchConfig()]);
+        return log;
+      }
+
+      // Poll every 2 seconds until completedAt is set
+      pollingIntervalRef.current = setInterval(async () => {
+        try {
+          const polled = await getCalendarSyncLog(log.id);
+          setActiveSyncLog(polled);
+
+          if (polled.completedAt !== null) {
+            stopPolling();
+            setIsSyncing(false);
+            await Promise.all([fetchLogs(1, 20, dateFilter), fetchConfig()]);
+          }
+        } catch {
+          // Polling errors are non-fatal; keep trying
+        }
+      }, 2000);
+
       return log;
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Sync failed';
       setError(msg);
-      throw err;
-    } finally {
       setIsSyncing(false);
+      throw err;
     }
-  }, [fetchLogs, fetchConfig]);
+  }, [stopPolling, fetchLogs, fetchConfig, dateFilter]);
 
   const disconnect = useCallback(async () => {
     try {
@@ -124,5 +168,8 @@ export function useCalendarSync() {
     saveConfig,
     sync,
     disconnect,
+    dateFilter,
+    setDateFilter,
+    activeSyncLog,
   };
 }
