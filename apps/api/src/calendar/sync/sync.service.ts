@@ -1,5 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EntriesService } from '../entries/entries.service';
 import { SyncConfigService } from './sync-config.service';
@@ -216,7 +217,7 @@ export class CalendarSyncService {
         entriesUpdated: 0,
         entriesDeleted: 0,
         errorMessage: null,
-        errorDetails: null,
+        errorDetails: Prisma.DbNull,
       },
     });
 
