@@ -26,6 +26,8 @@ import {
   TableContainer,
   TablePagination,
   Divider,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import {
   LinkOff as DisconnectIcon,
@@ -38,6 +40,8 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useCalendarSync } from '../hooks/useCalendarSync';
 import { getGoogleCalendarAuthUrl } from '../services/api';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
+import { SyncLogDetailDialog } from '../components/calendar/SyncLogDetailDialog';
+import type { CalendarSyncLog } from '../types';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -107,10 +111,14 @@ export default function CalendarSyncPage() {
     saveConfig,
     sync,
     disconnect,
+    dateFilter,
+    setDateFilter,
+    activeSyncLog,
   } = useCalendarSync();
 
   const [tabIndex, setTabIndex] = useState(0);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [selectedLog, setSelectedLog] = useState<CalendarSyncLog | null>(null);
 
   // Local form state
   const [localEnabled, setLocalEnabled] = useState(false);
@@ -142,11 +150,19 @@ export default function CalendarSyncPage() {
     }
   }, [config?.isConnected, fetchCalendars]);
 
+  // Re-fetch logs when dateFilter changes (only when on the logs tab)
+  useEffect(() => {
+    if (tabIndex === 1) {
+      fetchLogs(1, logsPageSize, dateFilter);
+      setLogsPage(0);
+    }
+  }, [dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Load logs when switching to logs tab
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setTabIndex(newValue);
     if (newValue === 1) {
-      fetchLogs(logsPage + 1, logsPageSize);
+      fetchLogs(logsPage + 1, logsPageSize, dateFilter);
     }
   };
 
@@ -174,7 +190,9 @@ export default function CalendarSyncPage() {
 
   const handleSyncNow = async () => {
     try {
-      await sync();
+      const log = await sync();
+      // Open the detail dialog immediately with the running (or completed) log
+      setSelectedLog(log);
       setSuccessMessage('Sync triggered successfully');
     } catch {
       // error is set in the hook
@@ -183,15 +201,27 @@ export default function CalendarSyncPage() {
 
   const handleLogsPageChange = (_: unknown, newPage: number) => {
     setLogsPage(newPage);
-    fetchLogs(newPage + 1, logsPageSize);
+    fetchLogs(newPage + 1, logsPageSize, dateFilter);
   };
 
   const handleLogsRowsPerPageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newSize = parseInt(event.target.value, 10);
     setLogsPageSize(newSize);
     setLogsPage(0);
-    fetchLogs(1, newSize);
+    fetchLogs(1, newSize, dateFilter);
   };
+
+  const handleDateFilterChange = (_: React.MouseEvent<HTMLElement>, val: string | null) => {
+    if (val) setDateFilter(val);
+  };
+
+  const handleDialogClose = () => {
+    setSelectedLog(null);
+  };
+
+  // Dialog shows the selected row, or the active running sync if no row is explicitly selected
+  const dialogLog = selectedLog ?? (activeSyncLog?.status === 'running' ? activeSyncLog : null);
+  const dialogOpen = !!(selectedLog || activeSyncLog?.status === 'running');
 
   if (isLoading) {
     return <LoadingSpinner />;
@@ -374,7 +404,30 @@ export default function CalendarSyncPage() {
         {/* Tab 2: Sync Logs */}
         <TabPanel value={tabIndex} index={1}>
           <Box sx={{ px: 3 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+            {/* Toolbar: date filter + sync button */}
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 1,
+                mb: 2,
+              }}
+            >
+              <ToggleButtonGroup
+                value={dateFilter}
+                exclusive
+                onChange={handleDateFilterChange}
+                size="small"
+              >
+                <ToggleButton value="today">Today</ToggleButton>
+                <ToggleButton value="yesterday">Yesterday</ToggleButton>
+                <ToggleButton value="last7">Last 7 Days</ToggleButton>
+                <ToggleButton value="last30">Last 30 Days</ToggleButton>
+                <ToggleButton value="all">All</ToggleButton>
+              </ToggleButtonGroup>
+
               <Button
                 variant="contained"
                 startIcon={
@@ -386,6 +439,26 @@ export default function CalendarSyncPage() {
                 {isSyncing ? 'Syncing...' : 'Sync Now'}
               </Button>
             </Box>
+
+            {/* Active sync progress card */}
+            {activeSyncLog && activeSyncLog.status === 'running' && (
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  p: 2,
+                  mb: 2,
+                  bgcolor: 'action.hover',
+                  borderRadius: 1,
+                  border: '1px solid',
+                  borderColor: 'divider',
+                }}
+              >
+                <CircularProgress size={20} />
+                <Typography variant="body2">Sync in progress...</Typography>
+              </Box>
+            )}
 
             {logs && logs.items.length > 0 ? (
               <>
@@ -404,7 +477,12 @@ export default function CalendarSyncPage() {
                     </TableHead>
                     <TableBody>
                       {logs.items.map((log) => (
-                        <TableRow key={log.id} hover>
+                        <TableRow
+                          key={log.id}
+                          hover
+                          sx={{ cursor: 'pointer' }}
+                          onClick={() => setSelectedLog(log)}
+                        >
                           <TableCell sx={{ whiteSpace: 'nowrap' }}>
                             {formatDateTime(log.startedAt)}
                           </TableCell>
@@ -448,6 +526,13 @@ export default function CalendarSyncPage() {
           </Box>
         </TabPanel>
       </Paper>
+
+      {/* Sync log detail dialog */}
+      <SyncLogDetailDialog
+        log={dialogLog}
+        open={dialogOpen}
+        onClose={handleDialogClose}
+      />
 
       {/* Success snackbar */}
       <Snackbar
