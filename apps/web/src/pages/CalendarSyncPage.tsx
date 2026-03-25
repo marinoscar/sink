@@ -114,6 +114,7 @@ export default function CalendarSyncPage() {
     dateFilter,
     setDateFilter,
     activeSyncLog,
+    setActiveSyncLog,
   } = useCalendarSync();
 
   const [tabIndex, setTabIndex] = useState(0);
@@ -190,10 +191,9 @@ export default function CalendarSyncPage() {
 
   const handleSyncNow = async () => {
     try {
-      const log = await sync();
-      // Open the detail dialog immediately with the running (or completed) log
-      setSelectedLog(log);
-      setSuccessMessage('Sync triggered successfully');
+      // Clear any previously selected log so the dialog shows the active sync
+      setSelectedLog(null);
+      await sync();
     } catch {
       // error is set in the hook
     }
@@ -217,11 +217,16 @@ export default function CalendarSyncPage() {
 
   const handleDialogClose = () => {
     setSelectedLog(null);
+    // Also clear activeSyncLog so dialog fully closes after viewing completed sync
+    if (activeSyncLog && activeSyncLog.completedAt) {
+      // Only clear if not still running
+      setActiveSyncLog(null);
+    }
   };
 
-  // Dialog shows the selected row, or the active running sync if no row is explicitly selected
-  const dialogLog = selectedLog ?? (activeSyncLog?.status === 'running' ? activeSyncLog : null);
-  const dialogOpen = !!(selectedLog || activeSyncLog?.status === 'running');
+  // Dialog shows the active sync (live-updating) when running, otherwise the selected row
+  const dialogLog = activeSyncLog ?? selectedLog;
+  const dialogOpen = !!(activeSyncLog || selectedLog);
 
   if (isLoading) {
     return <LoadingSpinner />;

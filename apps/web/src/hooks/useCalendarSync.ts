@@ -171,5 +171,6 @@ export function useCalendarSync() {
     dateFilter,
     setDateFilter,
     activeSyncLog,
+    setActiveSyncLog,
   };
 }
