@@ -233,6 +233,8 @@ export class CalendarSyncService {
       },
     });
 
+    await this.pruneOldLogs(userId, 300);
+
     return {
       id: log.id,
       startedAt: log.startedAt.toISOString(),
@@ -245,6 +247,25 @@ export class CalendarSyncService {
       errorMessage: log.errorMessage,
       errorDetails: log.errorDetails,
     };
+  }
+
+  /**
+   * Deletes logs beyond the most recent maxEntries for the given user.
+   * Uses the startedAt timestamp of the Nth most recent log as the cutoff,
+   * removing all older records strictly before that timestamp.
+   */
+  private async pruneOldLogs(userId: string, maxEntries: number): Promise<void> {
+    const cutoffLog = await this.prisma.calendarSyncLog.findFirst({
+      where: { userId },
+      orderBy: { startedAt: 'desc' },
+      skip: maxEntries - 1,
+      select: { startedAt: true },
+    });
+    if (cutoffLog) {
+      await this.prisma.calendarSyncLog.deleteMany({
+        where: { userId, startedAt: { lt: cutoffLog.startedAt } },
+      });
+    }
   }
 
   private async updateConfigLastSync(
