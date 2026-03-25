@@ -40,9 +40,10 @@ export default function CalendarImportPage() {
     setIsUploading(true);
     try {
       const text = await file.text();
+      const cleanText = text.replace(/^\uFEFF/, '');
       let data: unknown;
       try {
-        data = JSON.parse(text);
+        data = JSON.parse(cleanText);
       } catch {
         setError('Invalid JSON file. Please check the file format.');
         return;
