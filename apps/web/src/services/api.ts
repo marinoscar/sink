@@ -347,6 +347,10 @@ export async function getGoogleCalendars(): Promise<GoogleCalendarListItem[]> {
   return api.get<GoogleCalendarListItem[]>('/calendar/sync/calendars');
 }
 
+export async function resetCalendarSync(): Promise<CalendarSyncLog> {
+  return api.post<CalendarSyncLog>('/calendar/sync/reset');
+}
+
 export function getGoogleCalendarAuthUrl(): string {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
   const token = api.getAccessToken();

@@ -7,6 +7,7 @@ import {
   getCalendarSyncLog,
   disconnectGoogleCalendar,
   getGoogleCalendars,
+  resetCalendarSync,
 } from '../services/api';
 import type {
   CalendarSyncConfig,
@@ -138,6 +139,46 @@ export function useCalendarSync() {
     }
   }, [stopPolling, fetchLogs, fetchConfig, dateFilter]);
 
+  const reset = useCallback(async (): Promise<CalendarSyncLog> => {
+    setIsSyncing(true);
+    stopPolling();
+
+    try {
+      const log = await resetCalendarSync();
+      setError(null);
+      setActiveSyncLog(log);
+
+      if (log.completedAt !== null) {
+        setActiveSyncLog(null);
+        setIsSyncing(false);
+        await Promise.all([fetchLogs(1, 20, dateFilter), fetchConfig()]);
+        return log;
+      }
+
+      pollingIntervalRef.current = setInterval(async () => {
+        try {
+          const polled = await getCalendarSyncLog(log.id);
+          setActiveSyncLog(polled);
+
+          if (polled.completedAt !== null) {
+            stopPolling();
+            setIsSyncing(false);
+            await Promise.all([fetchLogs(1, 20, dateFilter), fetchConfig()]);
+          }
+        } catch {
+          // Polling errors are non-fatal
+        }
+      }, 2000);
+
+      return log;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Reset failed';
+      setError(msg);
+      setIsSyncing(false);
+      throw err;
+    }
+  }, [stopPolling, fetchLogs, fetchConfig, dateFilter]);
+
   const disconnect = useCallback(async () => {
     try {
       await disconnectGoogleCalendar();
@@ -167,6 +208,7 @@ export function useCalendarSync() {
     fetchCalendars,
     saveConfig,
     sync,
+    reset,
     disconnect,
     dateFilter,
     setDateFilter,
