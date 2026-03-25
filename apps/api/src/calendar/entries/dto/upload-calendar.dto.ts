@@ -4,7 +4,15 @@ const recurrencePatternSchema = z
   .object({
     type: z.enum(['Daily', 'Weekly', 'Monthly', 'MonthlyNth', 'Yearly', 'YearlyNth']),
     interval: z.number().int().min(1).optional().nullable(),
-    daysOfWeek: z.array(z.string()).optional().nullable(),
+    daysOfWeek: z.preprocess(
+      (val) => {
+        if (Array.isArray(val)) return val;
+        if (typeof val === 'string') return [val];
+        if (val && typeof val === 'object' && Object.keys(val).length === 0) return [];
+        return val;
+      },
+      z.array(z.string()).optional().nullable(),
+    ),
     dayOfMonth: z.number().int().min(0).max(31).optional().nullable(),
     monthOfYear: z.number().int().min(0).max(12).optional().nullable(),
     instance: z.number().int().min(0).max(5).optional().nullable(),
@@ -27,7 +35,15 @@ export const calendarEntrySchema = z
     isAllDay: z.boolean().optional().nullable(),
     isRecurring: z.boolean().optional().nullable(),
     attendeeCount: z.number().int().min(0).optional().nullable(),
-    attendeeDomains: z.array(z.string()).optional().nullable(),
+    attendeeDomains: z.preprocess(
+      (val) => {
+        if (Array.isArray(val)) return val;
+        if (typeof val === 'string') return [val];
+        if (val && typeof val === 'object' && Object.keys(val).length === 0) return [];
+        return val;
+      },
+      z.array(z.string()).optional().nullable(),
+    ),
     organizerDomain: z.string().nullable().optional(),
     busyStatus: z.string().optional().nullable(),
     responseStatus: z.string().optional().nullable(),
