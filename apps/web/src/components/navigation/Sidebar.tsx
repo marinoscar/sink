@@ -18,6 +18,7 @@ import {
   People as PeopleIcon,
   Key as KeyIcon,
   Sync as SyncIcon,
+  UploadFile as UploadFileIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -70,6 +71,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       label: 'Calendar Sync',
       icon: <SyncIcon />,
       path: '/calendar/sync',
+      visible: isAdmin,
+    },
+    {
+      label: 'Calendar Import',
+      icon: <UploadFileIcon />,
+      path: '/calendar/import',
       visible: isAdmin,
     },
   ];

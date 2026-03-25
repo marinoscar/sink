@@ -20,6 +20,7 @@ const SystemSettingsPage = lazy(() => import('./pages/SystemSettingsPage'));
 const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
 const PersonalAccessTokensPage = lazy(() => import('./pages/PersonalAccessTokensPage'));
 const CalendarSyncPage = lazy(() => import('./pages/CalendarSyncPage'));
+const CalendarImportPage = lazy(() => import('./pages/CalendarImportPage'));
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -56,6 +57,7 @@ function AppRoutes() {
                 <Route path="/admin/users" element={<UserManagementPage />} />
                 <Route path="/admin/settings" element={<SystemSettingsPage />} />
                 <Route path="/calendar/sync" element={<CalendarSyncPage />} />
+                <Route path="/calendar/import" element={<CalendarImportPage />} />
               </Route>
             </Route>
 
