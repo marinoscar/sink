@@ -176,9 +176,27 @@ export function mapToGoogleEvent(
   entryUuid: string,
   data: CalendarEntryData,
 ): calendar_v3.Schema$Event {
+  const busyStatus = data.busyStatus || 'Busy';
+  const subject = data.subject || 'No Subject';
+
+  // Prefix title and set color for Tentative and OutOfOffice
+  let summary = subject;
+  let colorId: string | undefined;
+  if (busyStatus === 'Tentative') {
+    summary = `[TENT] ${subject}`;
+    colorId = '6'; // Tangerine
+  } else if (busyStatus === 'OutOfOffice') {
+    summary = `[OOO] ${subject}`;
+    colorId = '3'; // Grape
+  }
+
   const event: calendar_v3.Schema$Event = {
-    summary: data.subject || 'No Subject',
+    summary,
   };
+
+  if (colorId) {
+    event.colorId = colorId;
+  }
 
   // Location
   if (data.location) {
@@ -197,36 +215,38 @@ export function mapToGoogleEvent(
     event.end = { dateTime: data.end, timeZone: toIanaTimeZone(data.endTimeZone || 'UTC') };
   }
 
-  // Transparency (busy/free)
-  event.transparency = data.busyStatus === 'Free' ? 'transparent' : 'opaque';
+  // Transparency (busy/free) — Tentative and OutOfOffice show as Busy
+  event.transparency = busyStatus === 'Free' ? 'transparent' : 'opaque';
 
   // Recurrence
   if (data.isRecurring && data.recurrencePattern) {
     event.recurrence = buildRrule(data.recurrencePattern);
   }
 
-  // Structured description block for traceability
+  // Description: organizer domain first, then control fields
   const attendeeDomains = data.attendeeDomains || [];
   const attendeeCount = data.attendeeCount || 0;
   const responseStatus = data.responseStatus || '';
-  const busyStatus = data.busyStatus || 'Busy';
 
-  const metaLines: string[] = [
-    '--- Sink Calendar Sync ---',
-    `Database ID: ${entryUuid}`,
-    `Source ID: ${entryId}`,
-  ];
+  const descLines: string[] = [];
+
   if (data.organizerDomain) {
-    metaLines.push(`Organizer Domain: ${data.organizerDomain}`);
+    descLines.push(`Organizer: ${data.organizerDomain}`);
   }
   if (attendeeDomains.length > 0) {
-    metaLines.push(`Attendee Domains: ${attendeeDomains.join(', ')}`);
+    descLines.push(`Attendee Domains: ${attendeeDomains.join(', ')}`);
   }
-  metaLines.push(`Attendee Count: ${attendeeCount}`);
-  metaLines.push(`Response Status: ${responseStatus}`);
-  metaLines.push(`Busy Status: ${busyStatus}`);
+  descLines.push(`Attendee Count: ${attendeeCount}`);
 
-  event.description = metaLines.join('\n');
+  descLines.push('');
+  descLines.push('');
+  descLines.push('--- CONTROL FIELDS ---');
+  descLines.push(`Outlook ID: ${entryId}`);
+  descLines.push(`Database ID: ${entryUuid}`);
+  descLines.push(`Response Status: ${responseStatus}`);
+  descLines.push(`Busy Status: ${busyStatus}`);
+
+  event.description = descLines.join('\n');
 
   return event;
 }
