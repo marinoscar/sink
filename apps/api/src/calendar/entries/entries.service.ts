@@ -31,14 +31,21 @@ export class EntriesService {
     dto: UploadCalendarDto,
     userId: string,
   ): Promise<UploadResultDto> {
-    const uploadedEntryIds = new Set(dto.entries.map((e) => e.entryId));
+    // Deduplicate entries by entryId (keep the last occurrence)
+    const deduped = new Map<string, typeof dto.entries[0]>();
+    for (const entry of dto.entries) {
+      deduped.set(entry.entryId, entry);
+    }
+    const uniqueEntries = [...deduped.values()];
+
+    const uploadedEntryIds = new Set(uniqueEntries.map((e) => e.entryId));
     let entriesCreated = 0;
     let entriesUpdated = 0;
     let entriesDeleted = 0;
 
     await this.prisma.$transaction(async (tx) => {
       // Process entries in batches of 100
-      const batches = this.chunk(dto.entries, 100);
+      const batches = this.chunk(uniqueEntries, 100);
 
       for (const batch of batches) {
         const results = await Promise.all(
@@ -123,7 +130,7 @@ export class EntriesService {
         rangeStart: dto.rangeStart,
         rangeEnd: dto.rangeEnd,
         itemCount: dto.itemCount,
-        entriesProcessed: dto.entries.length,
+        entriesProcessed: uniqueEntries.length,
         entriesCreated,
         entriesUpdated,
         entriesDeleted,
@@ -136,7 +143,7 @@ export class EntriesService {
 
     return {
       uploadId: upload.id,
-      entriesProcessed: dto.entries.length,
+      entriesProcessed: uniqueEntries.length,
       entriesCreated,
       entriesUpdated,
       entriesDeleted,
