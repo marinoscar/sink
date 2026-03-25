@@ -28,6 +28,11 @@ import {
   Divider,
   ToggleButton,
   ToggleButtonGroup,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
 } from '@mui/material';
 import {
   LinkOff as DisconnectIcon,
@@ -35,6 +40,7 @@ import {
   Sync as SyncIcon,
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
+  DeleteForever as DeleteForeverIcon,
 } from '@mui/icons-material';
 import { usePermissions } from '../hooks/usePermissions';
 import { useCalendarSync } from '../hooks/useCalendarSync';
@@ -110,6 +116,7 @@ export default function CalendarSyncPage() {
     fetchCalendars,
     saveConfig,
     sync,
+    reset,
     disconnect,
     dateFilter,
     setDateFilter,
@@ -120,6 +127,7 @@ export default function CalendarSyncPage() {
   const [tabIndex, setTabIndex] = useState(0);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<CalendarSyncLog | null>(null);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
   // Local form state
   const [localEnabled, setLocalEnabled] = useState(false);
@@ -403,6 +411,36 @@ export default function CalendarSyncPage() {
                 {isSaving ? 'Saving...' : 'Save'}
               </Button>
             </Box>
+
+            {/* Danger Zone */}
+            {config?.isConnected && (
+              <Box
+                sx={{
+                  mt: 4,
+                  p: 2,
+                  border: '1px solid',
+                  borderColor: 'error.main',
+                  borderRadius: 1,
+                }}
+              >
+                <Typography variant="subtitle2" color="error" gutterBottom>
+                  Danger Zone
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Delete all synced events from Google Calendar and remove all entries from the
+                  database. This action cannot be undone.
+                </Typography>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<DeleteForeverIcon />}
+                  onClick={() => setResetConfirmOpen(true)}
+                  disabled={isSyncing}
+                >
+                  Full Reset
+                </Button>
+              </Box>
+            )}
           </Box>
         </TabPanel>
 
@@ -538,6 +576,34 @@ export default function CalendarSyncPage() {
         open={dialogOpen}
         onClose={handleDialogClose}
       />
+
+      {/* Full Reset confirmation dialog */}
+      <Dialog open={resetConfirmOpen} onClose={() => setResetConfirmOpen(false)}>
+        <DialogTitle>Confirm Full Reset</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This will delete all synced events from your Google Calendar and remove all calendar
+            entries from the database. This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setResetConfirmOpen(false)}>Cancel</Button>
+          <Button
+            onClick={async () => {
+              setResetConfirmOpen(false);
+              try {
+                await reset();
+              } catch {
+                // error handled in hook
+              }
+            }}
+            color="error"
+            variant="contained"
+          >
+            Delete Everything
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Success snackbar */}
       <Snackbar
