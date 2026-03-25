@@ -95,6 +95,28 @@ export class SyncController {
   }
 
   /**
+   * POST /calendar/sync/reset
+   * Deletes all synced events from Google Calendar and clears all local
+   * calendar entries and uploads for the authenticated admin.
+   * Returns immediately with a log record in 'running' status while the
+   * actual reset executes in the background.
+   */
+  @Post('reset')
+  @ApiOperation({
+    summary: 'Delete all synced events from Google and clear database',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Initial reset log with status "running"; reset runs in background',
+  })
+  async resetAll(
+    @CurrentUser('id') userId: string,
+  ): Promise<{ data: SyncLogResponseDto }> {
+    const log = await this.calendarSyncService.resetAll(userId);
+    return { data: log };
+  }
+
+  /**
    * GET /calendar/sync/logs
    * Returns paginated sync logs, optionally filtered by date range.
    */
