@@ -342,5 +342,6 @@ export async function getGoogleCalendars(): Promise<GoogleCalendarListItem[]> {
 
 export function getGoogleCalendarAuthUrl(): string {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
-  return `${baseUrl}/calendar/sync/auth/google`;
+  const token = api.getAccessToken();
+  return `${baseUrl}/calendar/sync/auth/google?token=${encodeURIComponent(token || '')}`;
 }

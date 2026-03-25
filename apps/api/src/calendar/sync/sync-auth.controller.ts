@@ -9,6 +9,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import {
   ApiTags,
   ApiOperation,
@@ -31,20 +32,36 @@ export class SyncAuthController {
     private readonly syncConfigService: SyncConfigService,
     private readonly googleClient: GoogleCalendarClient,
     private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
   ) {}
 
   /**
    * GET /calendar/sync/auth/google
    * Builds the Google OAuth consent URL with calendar scope and redirects.
+   * Uses a query-param token because this is a browser redirect (no Bearer header).
    */
-  @Auth({ roles: [ROLES.ADMIN] })
+  @Public()
   @Get('google')
   @ApiOperation({ summary: 'Initiate Google Calendar OAuth' })
   @ApiResponse({ status: 302, description: 'Redirect to Google consent screen' })
   async initiateGoogleAuth(
-    @CurrentUser('id') userId: string,
+    @Query('token') token: string,
     @Res() res: FastifyReply,
   ): Promise<void> {
+    // Verify the JWT from the query param
+    if (!token) {
+      throw new UnauthorizedException('Missing token');
+    }
+
+    let payload: { sub: string };
+    try {
+      payload = this.jwtService.verify(token);
+    } catch {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+
+    const userId = payload.sub;
+
     const clientId = this.configService.get<string>('google.clientId')!;
     const clientSecret = this.configService.get<string>('google.clientSecret')!;
     const appUrl = this.configService.get<string>('appUrl')!;
