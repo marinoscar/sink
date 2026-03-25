@@ -160,3 +160,11 @@ export interface GoogleCalendarListItem {
   summary: string;
   primary: boolean;
 }
+
+export interface CalendarUploadResponse {
+  uploadId: string;
+  entriesProcessed: number;
+  entriesCreated: number;
+  entriesUpdated: number;
+  entriesDeleted: number;
+}

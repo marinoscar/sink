@@ -205,6 +205,7 @@ import type {
   CalendarSyncLog,
   CalendarSyncLogsResponse,
   GoogleCalendarListItem,
+  CalendarUploadResponse,
 } from '../types';
 
 // Allowlist API
@@ -344,4 +345,9 @@ export function getGoogleCalendarAuthUrl(): string {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
   const token = api.getAccessToken();
   return `${baseUrl}/calendar/sync/auth/google?token=${encodeURIComponent(token || '')}`;
+}
+
+// Calendar Import API
+export async function uploadCalendarJson(data: unknown): Promise<CalendarUploadResponse> {
+  return api.post<CalendarUploadResponse>('/calendar/entries/upload', data);
 }
