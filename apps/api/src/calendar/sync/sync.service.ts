@@ -8,6 +8,8 @@ import { GoogleCalendarClient } from './google-calendar.client';
 import { mapToGoogleEvent, CalendarEntryData } from './event-mapper';
 import { SyncLogResponseDto } from './dto/sync-log-response.dto';
 
+const THROTTLE_DELAY_MS = 250;
+
 @Injectable()
 export class CalendarSyncService {
   private readonly logger = new Logger(CalendarSyncService.name);
@@ -87,6 +89,7 @@ export class CalendarSyncService {
               config.calendarId,
               entry.googleEventId,
             );
+            await this.throttle();
             await this.entriesService.markSyncDeleted(entry.id);
             entriesDeleted++;
           } else if (!entry.isDeleted && entry.googleEventId) {
@@ -98,6 +101,7 @@ export class CalendarSyncService {
               entry.googleEventId,
               event,
             );
+            await this.throttle();
             await this.entriesService.markSynced(entry.id, entry.googleEventId);
             entriesUpdated++;
           } else if (!entry.isDeleted && !entry.googleEventId) {
@@ -108,6 +112,7 @@ export class CalendarSyncService {
               config.calendarId,
               event,
             );
+            await this.throttle();
             await this.entriesService.markSynced(entry.id, googleEventId);
             entriesCreated++;
           } else if (entry.isDeleted && !entry.googleEventId) {
@@ -322,6 +327,7 @@ export class CalendarSyncService {
               config.calendarId,
               entry.googleEventId,
             );
+            await this.throttle();
             await this.entriesService.markSyncDeleted(entry.id);
             entriesDeleted++;
           } else if (!entry.isDeleted && entry.googleEventId) {
@@ -332,6 +338,7 @@ export class CalendarSyncService {
               entry.googleEventId,
               event,
             );
+            await this.throttle();
             await this.entriesService.markSynced(entry.id, entry.googleEventId);
             entriesUpdated++;
           } else if (!entry.isDeleted && !entry.googleEventId) {
@@ -341,6 +348,7 @@ export class CalendarSyncService {
               config.calendarId,
               event,
             );
+            await this.throttle();
             await this.entriesService.markSynced(entry.id, googleEventId);
             entriesCreated++;
           } else if (entry.isDeleted && !entry.googleEventId) {
@@ -540,6 +548,7 @@ export class CalendarSyncService {
             config.calendarId,
             entry.googleEventId!,
           );
+          await this.throttle();
           entriesDeleted++;
         } catch (err) {
           // Event may already be deleted in Google — log and continue
@@ -626,8 +635,14 @@ export class CalendarSyncService {
    * Detects Google OAuth token revocation errors.
    * These indicate the refresh token is no longer valid and the user
    * must re-authorize via the consent screen.
+   *
+   * Rate limit errors are explicitly excluded — they must not trigger
+   * a token revocation flow.
    */
   private isTokenRevocationError(err: unknown): boolean {
+    // Rate limit errors are recoverable; never treat them as auth failures
+    if (this.isRateLimitError(err)) return false;
+
     if (!(err instanceof Error)) return false;
     const message = err.message.toLowerCase();
     // Google returns these for revoked/expired refresh tokens
@@ -638,6 +653,22 @@ export class CalendarSyncService {
       message.includes('refresh token is invalid') ||
       message.includes('unauthorized_client')
     );
+  }
+
+  /**
+   * Returns true when the error is a Google rate limit response.
+   * Handles both 429 (Too Many Requests) and 403 with rateLimitExceeded reason.
+   */
+  private isRateLimitError(err: unknown): boolean {
+    return this.googleClient.isRateLimitError(err);
+  }
+
+  /**
+   * Inserts a fixed delay between consecutive Google API calls to avoid
+   * bursting through per-minute quota limits.
+   */
+  private async throttle(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, THROTTLE_DELAY_MS));
   }
 
   private async createLog(
