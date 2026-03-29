@@ -158,28 +158,20 @@ Open `apps/android/` as the project root in Android Studio. Do not open the repo
 
 ### Configuring the API URL
 
-API URLs are set per build variant in `apps/android/app/build.gradle.kts`:
+API URLs are set per product flavor in `apps/android/app/build.gradle.kts`. Three flavors are defined:
 
-```kotlin
-defaultConfig {
-    // Used for release builds
-    buildConfigField("String", "API_BASE_URL", "\"https://sink.marin.cr/api\"")
-}
+| Flavor | API URL | Application ID suffix |
+|--------|---------|----------------------|
+| `local` | `http://10.0.2.2:3535/api` | `.local` |
+| `dev` | `https://sink.dev.marin.cr/api` | `.dev` |
+| `prod` | `https://sink.marin.cr/api` | _(none)_ |
 
-buildTypes {
-    debug {
-        // 10.0.2.2 is the Android emulator's alias for the host machine's localhost
-        buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:3535/api\"")
-    }
-}
-```
-
-To point a debug build at a different server, change the `debug` `buildConfigField` value and rebuild.
+The `local` and `dev` flavors append a suffix to the application ID (`com.sink.app.local`, `com.sink.app.dev`) so all three variants can be installed side-by-side on the same device.
 
 ### Build and Run
 
 1. Connect a device or start an emulator.
-2. Select the `debug` build variant in Android Studio.
+2. Select the build variant in Android Studio: **Build > Select Build Variant**, then choose from the variant list (e.g. `localDebug`, `devDebug`, `prodRelease`).
 3. Click Run (or press Shift+F10).
 
 ### Required Permissions
@@ -722,17 +714,35 @@ Response `200`:
 
 ### Build Variants
 
-| Variant | API URL | Minification | Logging |
-|---------|---------|-------------|--------|
-| `debug` | `http://10.0.2.2:3535/api` | Off | HTTP body logging via OkHttp |
-| `release` | `https://sink.marin.cr/api` | On (ProGuard) | No HTTP logging |
+The build variant is the combination of a product flavor and a build type. The full variant matrix is:
 
-### Changing the Release API URL
+| Variant | Flavor | Build type | API URL | Minification |
+|---------|--------|-----------|---------|-------------|
+| `localDebug` | `local` | `debug` | `http://10.0.2.2:3535/api` | Off |
+| `localRelease` | `local` | `release` | `http://10.0.2.2:3535/api` | On (ProGuard) |
+| `devDebug` | `dev` | `debug` | `https://sink.dev.marin.cr/api` | Off |
+| `devRelease` | `dev` | `release` | `https://sink.dev.marin.cr/api` | On (ProGuard) |
+| `prodDebug` | `prod` | `debug` | `https://sink.marin.cr/api` | Off |
+| `prodRelease` | `prod` | `release` | `https://sink.marin.cr/api` | On (ProGuard) |
 
-Edit `defaultConfig.buildConfigField` in `apps/android/app/build.gradle.kts`:
+Typical usage:
+- **Day-to-day development against local stack**: `localDebug`
+- **Testing against dev server**: `devDebug` or `devRelease`
+- **Production release**: `prodRelease`
+
+The `local` and `dev` flavors carry `.local` and `.dev` application ID suffixes respectively, so they can be installed alongside the production app on the same device.
+
+To select a variant in Android Studio: **Build > Select Build Variant**, then pick from the dropdown in the Build Variants panel.
+
+### Changing an API URL
+
+Edit the `buildConfigField` for the relevant flavor in `apps/android/app/build.gradle.kts`:
 
 ```kotlin
-buildConfigField("String", "API_BASE_URL", "\"https://your-domain.com/api\"")
+create("prod") {
+    dimension = "environment"
+    buildConfigField("String", "API_BASE_URL", "\"https://your-domain.com/api\"")
+}
 ```
 
 ### ProGuard
