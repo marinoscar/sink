@@ -18,14 +18,32 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
 
-        buildConfigField("String", "API_BASE_URL", "\"https://sink.marin.cr/api\"")
+    flavorDimensions += "environment"
+
+    productFlavors {
+        create("local") {
+            dimension = "environment"
+            applicationIdSuffix = ".local"
+            versionNameSuffix = "-local"
+            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:3535/api\"")
+        }
+        create("dev") {
+            dimension = "environment"
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            buildConfigField("String", "API_BASE_URL", "\"https://sink.dev.marin.cr/api\"")
+        }
+        create("prod") {
+            dimension = "environment"
+            buildConfigField("String", "API_BASE_URL", "\"https://sink.marin.cr/api\"")
+        }
     }
 
     buildTypes {
         debug {
             isMinifyEnabled = false
-            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:3535/api\"")
         }
         release {
             isMinifyEnabled = true
