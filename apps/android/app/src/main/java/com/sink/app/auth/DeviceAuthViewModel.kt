@@ -18,6 +18,7 @@ data class DeviceAuthState(
     val isLoading: Boolean = false,
     val userCode: String? = null,
     val verificationUri: String? = null,
+    val verificationUriComplete: String? = null,
     val error: String? = null,
     val isAuthenticated: Boolean = false,
     val pollInterval: Long = 5000L
@@ -68,6 +69,7 @@ class DeviceAuthViewModel @Inject constructor(
                         isLoading = false,
                         userCode = data.userCode,
                         verificationUri = data.verificationUri,
+                        verificationUriComplete = data.verificationUriComplete,
                         pollInterval = data.interval * 1000L
                     )
                 }
@@ -84,8 +86,9 @@ class DeviceAuthViewModel @Inject constructor(
 
     private fun startPolling(deviceCode: String, intervalMs: Long) {
         viewModelScope.launch {
+            var currentInterval = intervalMs
             while (true) {
-                delay(intervalMs)
+                delay(currentInterval)
                 try {
                     val response = apiService.pollDeviceToken(DeviceTokenRequest(deviceCode))
                     if (response.isSuccessful) {
@@ -95,12 +98,45 @@ class DeviceAuthViewModel @Inject constructor(
                         _state.update { it.copy(isAuthenticated = true) }
                         return@launch
                     }
-                    // If error is not authorization_pending, stop polling
+
                     val errorBody = response.errorBody()?.string() ?: ""
-                    if (!errorBody.contains("authorization_pending") && !errorBody.contains("slow_down")) {
-                        logRepository.error(LogFeature.DEVICE_AUTH, "Polling failed: $errorBody")
-                        _state.update { it.copy(error = "Authorization failed. Please try again.") }
-                        return@launch
+                    logRepository.debug(LogFeature.DEVICE_AUTH, "Poll response ${response.code()}: $errorBody")
+
+                    // Only stop polling on terminal errors
+                    when {
+                        // Keep polling - user hasn't acted yet
+                        errorBody.contains("authorization_pending") -> { /* continue */ }
+
+                        // Slow down - increase interval by 5s per RFC 8628
+                        errorBody.contains("slow_down") -> {
+                            currentInterval += 5000L
+                            logRepository.info(LogFeature.DEVICE_AUTH, "Slowing down, interval now ${currentInterval}ms")
+                        }
+
+                        // Terminal: user denied
+                        errorBody.contains("access_denied") -> {
+                            logRepository.error(LogFeature.DEVICE_AUTH, "User denied authorization")
+                            _state.update { it.copy(error = "Authorization was denied. Please try again.") }
+                            return@launch
+                        }
+
+                        // Terminal: code expired
+                        errorBody.contains("expired_token") -> {
+                            logRepository.error(LogFeature.DEVICE_AUTH, "Device code expired")
+                            _state.update { it.copy(
+                                userCode = null,
+                                verificationUri = null,
+                                verificationUriComplete = null,
+                                error = "Code expired. Please try again."
+                            ) }
+                            return@launch
+                        }
+
+                        // Non-terminal: any other error (possibly server issue, keep trying)
+                        else -> {
+                            logRepository.warn(LogFeature.DEVICE_AUTH, "Unexpected poll response: $errorBody")
+                            // Keep polling - server may be temporarily returning unexpected format
+                        }
                     }
                 } catch (e: Exception) {
                     logRepository.error(LogFeature.DEVICE_AUTH, "Polling error: ${e.message}")

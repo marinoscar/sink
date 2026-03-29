@@ -1,12 +1,16 @@
 package com.sink.app.auth
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -18,6 +22,7 @@ fun DeviceAuthScreen(
     viewModel: DeviceAuthViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -83,13 +88,28 @@ fun DeviceAuthScreen(
                             letterSpacing = 4.sp,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = state.verificationUri ?: "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                        )
                     }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Open in browser button
+                OutlinedButton(
+                    onClick = {
+                        val url = state.verificationUriComplete ?: state.verificationUri
+                        if (url != null) {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        Icons.Default.OpenInBrowser,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Open Activation Page")
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -140,6 +160,12 @@ fun DeviceAuthScreen(
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         textAlign = TextAlign.Center
                     )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                TextButton(onClick = { viewModel.requestDeviceCode() }) {
+                    Text("Try Again")
                 }
             }
         }
