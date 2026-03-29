@@ -45,6 +45,11 @@ const PERMISSIONS = [
   { name: 'storage:read', description: 'Read object metadata, get download URLs' },
   { name: 'storage:write', description: 'Upload, update metadata' },
   { name: 'storage:delete_any', description: 'Admin: delete any object' },
+
+  // Device text messages (SMS relay)
+  { name: 'device_text_messages:read', description: 'Read own device text messages' },
+  { name: 'device_text_messages:write', description: 'Relay text messages from device' },
+  { name: 'device_text_messages:read_any', description: 'Read any user device text messages' },
 ] as const;
 
 // Role to permissions mapping
@@ -62,17 +67,23 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'storage:read',
     'storage:write',
     'storage:delete_any',
+    'device_text_messages:read',
+    'device_text_messages:write',
+    'device_text_messages:read_any',
   ],
   contributor: [
     'user_settings:read',
     'user_settings:write',
     'storage:read',
     'storage:write',
+    'device_text_messages:read',
+    'device_text_messages:write',
   ],
   viewer: [
     'user_settings:read',
     'user_settings:write',
     'storage:read',
+    'device_text_messages:read',
   ],
 };
 

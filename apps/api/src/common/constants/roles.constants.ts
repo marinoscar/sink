@@ -38,6 +38,11 @@ export const PERMISSIONS = {
   STORAGE_READ: 'storage:read',
   STORAGE_WRITE: 'storage:write',
   STORAGE_DELETE_ANY: 'storage:delete_any',
+
+  // Device Text Messages
+  DEVICE_TEXT_MESSAGES_READ: 'device_text_messages:read',
+  DEVICE_TEXT_MESSAGES_WRITE: 'device_text_messages:write',
+  DEVICE_TEXT_MESSAGES_READ_ANY: 'device_text_messages:read_any',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

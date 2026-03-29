@@ -41,6 +41,8 @@ model User {
   calendarUploads           CalendarUpload[] @relation("UserCalendarUploads")
   calendarEntries           CalendarEntry[]  @relation("UserCalendarEntries")
   calendarSyncConfig        CalendarSyncConfig? @relation("UserCalendarSyncConfig")
+  devices                   Device[]     @relation("UserDevices")
+  smsMessages               SmsMessage[] @relation("UserSmsMessages")
 
   @@map("users")
 }
@@ -228,7 +230,8 @@ model DeviceCode {
   updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  user User? @relation("UserDeviceCodes", fields: [userId], references: [id], onDelete: Cascade)
+  user   User?   @relation("UserDeviceCodes", fields: [userId], references: [id], onDelete: Cascade)
+  device Device? @relation("DeviceCodeDevice")
 
   @@index([deviceCode])
   @@index([userCode])
@@ -265,8 +268,9 @@ model StorageObject {
   updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  uploadedBy User?                @relation("UserStorageObjects", fields: [uploadedById], references: [id], onDelete: SetNull)
-  chunks     StorageObjectChunk[]
+  uploadedBy     User?                @relation("UserStorageObjects", fields: [uploadedById], references: [id], onDelete: SetNull)
+  chunks         StorageObjectChunk[]
+  smsAttachments SmsAttachment[]      @relation("SmsAttachmentStorage")
 
   @@index([uploadedById])
   @@index([status])
@@ -406,4 +410,101 @@ model CalendarSyncLog {
   @@index([userId, createdAt])
   @@index([configId])
   @@map("calendar_sync_logs")
+}
+
+// =============================================================================
+// SMS Relay (Device Text Messages)
+// =============================================================================
+
+model Device {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  deviceCodeId String?   @unique @map("device_code_id") @db.Uuid
+  name         String
+  platform     String    // "android"
+  manufacturer String?
+  model        String?
+  osVersion    String?   @map("os_version")
+  appVersion   String?   @map("app_version")
+  pushToken    String?   @map("push_token")
+  lastSeenAt   DateTime? @map("last_seen_at") @db.Timestamptz
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  user        User        @relation("UserDevices", fields: [userId], references: [id], onDelete: Cascade)
+  deviceCode  DeviceCode? @relation("DeviceCodeDevice", fields: [deviceCodeId], references: [id], onDelete: SetNull)
+  sims        DeviceSim[]
+  smsMessages SmsMessage[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("devices")
+}
+
+model DeviceSim {
+  id             String   @id @default(uuid()) @db.Uuid
+  deviceId       String   @map("device_id") @db.Uuid
+  slotIndex      Int      @map("slot_index")
+  subscriptionId Int      @map("subscription_id")
+  carrierName    String?  @map("carrier_name")
+  phoneNumber    String?  @map("phone_number")
+  iccId          String?  @map("icc_id")
+  displayName    String?  @map("display_name")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  device      Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  smsMessages SmsMessage[]
+
+  @@unique([deviceId, subscriptionId])
+  @@index([deviceId])
+  @@map("device_sims")
+}
+
+model SmsMessage {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  deviceId     String   @map("device_id") @db.Uuid
+  deviceSimId  String?  @map("device_sim_id") @db.Uuid
+  sender       String
+  body         String   @db.Text
+  smsTimestamp DateTime @map("sms_timestamp") @db.Timestamptz
+  receivedAt   DateTime @default(now()) @map("received_at") @db.Timestamptz
+  messageHash  String   @unique @map("message_hash")
+  simSlotIndex Int?     @map("sim_slot_index")
+  carrierName  String?  @map("carrier_name")
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  user        User          @relation("UserSmsMessages", fields: [userId], references: [id], onDelete: Cascade)
+  device      Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  sim         DeviceSim?    @relation(fields: [deviceSimId], references: [id], onDelete: SetNull)
+  attachments SmsAttachment[]
+
+  @@index([userId, smsTimestamp])
+  @@index([userId, sender])
+  @@index([deviceId])
+  @@index([receivedAt])
+  @@map("sms_messages")
+}
+
+model SmsAttachment {
+  id              String   @id @default(uuid()) @db.Uuid
+  messageId       String   @map("message_id") @db.Uuid
+  storageObjectId String?  @map("storage_object_id") @db.Uuid
+  mimeType        String   @map("mime_type")
+  fileName        String?  @map("file_name")
+  size            BigInt
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  message       SmsMessage     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  storageObject StorageObject? @relation("SmsAttachmentStorage", fields: [storageObjectId], references: [id], onDelete: SetNull)
+
+  @@index([messageId])
+  @@map("sms_attachments")
 }

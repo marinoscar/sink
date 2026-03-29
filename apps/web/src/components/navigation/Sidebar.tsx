@@ -19,6 +19,7 @@ import {
   Key as KeyIcon,
   Sync as SyncIcon,
   UploadFile as UploadFileIcon,
+  Sms as SmsIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -41,6 +42,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       label: 'Home',
       icon: <HomeIcon />,
       path: '/',
+      visible: true,
+    },
+    {
+      label: 'Messages',
+      icon: <SmsIcon />,
+      path: '/messages',
       visible: true,
     },
     {

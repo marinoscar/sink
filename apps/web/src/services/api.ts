@@ -206,6 +206,9 @@ import type {
   CalendarSyncLogsResponse,
   GoogleCalendarListItem,
   CalendarUploadResponse,
+  MessageQueryParams,
+  PaginatedMessages,
+  UserDevice,
 } from '../types';
 
 // Allowlist API
@@ -360,4 +363,24 @@ export function getGoogleCalendarAuthUrl(): string {
 // Calendar Import API
 export async function uploadCalendarJson(data: unknown): Promise<CalendarUploadResponse> {
   return api.post<CalendarUploadResponse>('/calendar/entries/upload', data);
+}
+
+// Device Text Messages API
+export async function getDeviceTextMessages(params: MessageQueryParams): Promise<PaginatedMessages> {
+  const searchParams = new URLSearchParams();
+  if (params.page) searchParams.set('page', String(params.page));
+  if (params.pageSize) searchParams.set('pageSize', String(params.pageSize));
+  if (params.dateFrom) searchParams.set('dateFrom', params.dateFrom);
+  if (params.dateTo) searchParams.set('dateTo', params.dateTo);
+  if (params.sender) searchParams.set('sender', params.sender);
+  if (params.deviceId) searchParams.set('deviceId', params.deviceId);
+  return api.get<PaginatedMessages>(`/device-text-messages?${searchParams.toString()}`);
+}
+
+export async function getDeviceTextMessageSenders(): Promise<string[]> {
+  return api.get<string[]>('/device-text-messages/senders');
+}
+
+export async function getDeviceTextMessageDevices(): Promise<UserDevice[]> {
+  return api.get<UserDevice[]>('/device-text-messages/devices');
 }

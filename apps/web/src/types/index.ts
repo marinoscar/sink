@@ -168,3 +168,53 @@ export interface CalendarUploadResponse {
   entriesUpdated: number;
   entriesDeleted: number;
 }
+
+// Device Text Messages
+export interface SmsMessageItem {
+  id: string;
+  sender: string;
+  body: string;
+  smsTimestamp: string;
+  receivedAt: string;
+  simSlotIndex: number | null;
+  carrierName: string | null;
+  device: {
+    id: string;
+    name: string;
+  };
+}
+
+export interface MessageQueryParams {
+  page?: number;
+  pageSize?: number;
+  dateFrom?: string;
+  dateTo?: string;
+  sender?: string;
+  deviceId?: string;
+}
+
+export interface UserDevice {
+  id: string;
+  name: string;
+  platform: string;
+  manufacturer: string | null;
+  model: string | null;
+  osVersion: string | null;
+  isActive: boolean;
+  lastSeenAt: string | null;
+  sims: Array<{
+    id: string;
+    slotIndex: number;
+    carrierName: string | null;
+    phoneNumber: string | null;
+    displayName: string | null;
+  }>;
+}
+
+export interface PaginatedMessages {
+  items: SmsMessageItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
