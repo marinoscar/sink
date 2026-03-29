@@ -59,6 +59,21 @@ export const mockPermissions = {
     name: 'allowlist:write',
     description: 'Modify allowlist',
   },
+  deviceTextMessagesRead: {
+    id: randomUUID(),
+    name: 'device_text_messages:read',
+    description: 'Read own device text messages',
+  },
+  deviceTextMessagesWrite: {
+    id: randomUUID(),
+    name: 'device_text_messages:write',
+    description: 'Relay text messages from device',
+  },
+  deviceTextMessagesReadAny: {
+    id: randomUUID(),
+    name: 'device_text_messages:read_any',
+    description: 'Read any user device text messages',
+  },
 };
 
 export const mockRoles = {
@@ -350,14 +365,21 @@ export const rolePermissionsMap = {
     mockPermissions.rbacManage,
     mockPermissions.allowlistRead,
     mockPermissions.allowlistWrite,
+    mockPermissions.deviceTextMessagesRead,
+    mockPermissions.deviceTextMessagesWrite,
+    mockPermissions.deviceTextMessagesReadAny,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
     mockPermissions.userSettingsWrite,
+    mockPermissions.deviceTextMessagesRead,
+    mockPermissions.deviceTextMessagesWrite,
   ],
   viewer: [
     mockPermissions.userSettingsRead,
     mockPermissions.userSettingsWrite,
+    mockPermissions.deviceTextMessagesRead,
+    mockPermissions.deviceTextMessagesWrite,
   ],
 };
 
