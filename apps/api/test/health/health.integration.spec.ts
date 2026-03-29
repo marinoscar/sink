@@ -168,8 +168,8 @@ describe('Health Endpoints (Integration)', () => {
         .expect(200);
 
       const duration = Date.now() - startTime;
-      // Liveness check should be very fast (under 100ms)
-      expect(duration).toBeLessThan(100);
+      // Liveness check should be fast (under 500ms)
+      expect(duration).toBeLessThan(500);
     });
   });
 

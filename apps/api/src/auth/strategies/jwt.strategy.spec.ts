@@ -3,20 +3,30 @@ import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtStrategy } from './jwt.strategy';
 import { AuthService } from '../auth.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 describe('JwtStrategy', () => {
   let strategy: JwtStrategy;
   let mockAuthService: jest.Mocked<AuthService>;
+  let mockPrisma: jest.Mocked<PrismaService>;
 
   beforeEach(async () => {
     mockAuthService = {
       validateJwtPayload: jest.fn(),
     } as any;
 
+    mockPrisma = {
+      personalAccessToken: {
+        findUnique: jest.fn(),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    } as any;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         JwtStrategy,
         { provide: AuthService, useValue: mockAuthService },
+        { provide: PrismaService, useValue: mockPrisma },
         {
           provide: ConfigService,
           useValue: {
