@@ -29,7 +29,7 @@ export function MessageSenderFilter({ onSenderChange }: MessageSenderFilterProps
       options={senders}
       value={value}
       onChange={handleChange}
-      onInputChange={(_, inputValue, reason) => {
+      onInputChange={(_, _inputValue, reason) => {
         if (reason === 'clear') {
           setValue(null);
           onSenderChange(undefined);

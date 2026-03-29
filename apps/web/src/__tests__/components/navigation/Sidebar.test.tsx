@@ -193,7 +193,7 @@ describe('Sidebar', () => {
 
       // Only items with visible: true should be rendered
       const menuButtons = container.querySelectorAll('.MuiListItemButton-root');
-      expect(menuButtons).toHaveLength(2); // Home and User Settings
+      expect(menuButtons).toHaveLength(4); // Home, Messages, User Settings, Access Tokens
     });
 
     it('should show all menu items when user is admin', () => {
@@ -213,7 +213,7 @@ describe('Sidebar', () => {
       });
 
       const menuButtons = container.querySelectorAll('.MuiListItemButton-root');
-      expect(menuButtons).toHaveLength(4); // All menu items visible
+      expect(menuButtons).toHaveLength(8); // All menu items visible
     });
 
     it('should dynamically update menu items when isAdmin changes', () => {
@@ -277,7 +277,7 @@ describe('Sidebar', () => {
       const { container } = render(<Sidebar open={true} onClose={trackingOnClose} />);
 
       const buttons = container.querySelectorAll('.MuiListItemButton-root');
-      const settingsButton = buttons[1]; // User Settings is second button
+      const settingsButton = buttons[2]; // User Settings is third button (after Home, Messages)
       await user.click(settingsButton);
 
       // onClose should be called immediately (synchronously)
@@ -334,7 +334,7 @@ describe('Sidebar', () => {
       const { container } = render(<Sidebar open={true} onClose={mockOnClose} />);
 
       const buttons = container.querySelectorAll('.MuiListItemButton-root');
-      const settingsButton = buttons[1]; // User Settings is second button
+      const settingsButton = buttons[2]; // User Settings is third button (after Home, Messages)
       await user.click(settingsButton);
 
       await waitFor(() => {
@@ -361,7 +361,7 @@ describe('Sidebar', () => {
       });
 
       const buttons = container.querySelectorAll('.MuiListItemButton-root');
-      const userMgmtButton = buttons[2]; // User Management is third button
+      const userMgmtButton = buttons[4]; // User Management is fifth button (after Home, Messages, User Settings, Access Tokens)
       await user.click(userMgmtButton);
 
       await waitFor(() => {
@@ -388,7 +388,7 @@ describe('Sidebar', () => {
       });
 
       const buttons = container.querySelectorAll('.MuiListItemButton-root');
-      const systemSettingsButton = buttons[3]; // System Settings is fourth button
+      const systemSettingsButton = buttons[5]; // System Settings is sixth button
       await user.click(systemSettingsButton);
 
       await waitFor(() => {
@@ -415,7 +415,7 @@ describe('Sidebar', () => {
       const { container } = render(<Sidebar open={true} onClose={mockOnClose} />);
 
       const buttons = container.querySelectorAll('.MuiListItemButton-root');
-      const settingsButton = buttons[1]; // User Settings
+      const settingsButton = buttons[2]; // User Settings (after Home, Messages)
       expect(settingsButton.classList.contains('Mui-selected')).toBe(true);
     });
 
@@ -436,7 +436,7 @@ describe('Sidebar', () => {
       const { container } = render(<Sidebar open={true} onClose={mockOnClose} />);
 
       const buttons = container.querySelectorAll('.MuiListItemButton-root');
-      const settingsButton = buttons[1]; // User Settings
+      const settingsButton = buttons[2]; // User Settings (after Home, Messages)
       expect(settingsButton.classList.contains('Mui-selected')).toBe(false);
     });
 
@@ -459,7 +459,7 @@ describe('Sidebar', () => {
       });
 
       const buttons = container.querySelectorAll('.MuiListItemButton-root');
-      const userMgmtButton = buttons[2]; // User Management
+      const userMgmtButton = buttons[4]; // User Management (after Home, Messages, User Settings, Access Tokens)
       expect(userMgmtButton.classList.contains('Mui-selected')).toBe(true);
     });
   });
@@ -507,7 +507,7 @@ describe('Sidebar', () => {
 
       expect(mockOnClose).toHaveBeenCalledTimes(1);
 
-      const settingsButton = buttons[1];
+      const settingsButton = buttons[2];
       await user.click(settingsButton);
 
       expect(mockOnClose).toHaveBeenCalledTimes(2);
@@ -533,7 +533,7 @@ describe('Sidebar', () => {
 
       // Each menu item should have an icon
       const icons = container.querySelectorAll('.MuiListItemIcon-root');
-      expect(icons).toHaveLength(4); // Home, User Settings, User Management, System Settings
+      expect(icons).toHaveLength(8); // Home, Messages, User Settings, Access Tokens, User Management, System Settings, Calendar Sync, Calendar Import
     });
 
     it('should highlight icon for selected menu item', () => {
@@ -553,7 +553,7 @@ describe('Sidebar', () => {
       const { container } = render(<Sidebar open={true} onClose={mockOnClose} />);
 
       const buttons = container.querySelectorAll('.MuiListItemButton-root');
-      const settingsButton = buttons[1]; // User Settings
+      const settingsButton = buttons[2]; // User Settings (after Home, Messages)
       const icon = settingsButton?.querySelector('.MuiListItemIcon-root');
 
       expect(icon).not.toBeNull();
