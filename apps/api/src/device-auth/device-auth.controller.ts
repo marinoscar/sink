@@ -9,6 +9,8 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
+  HttpException,
+  Res,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -95,10 +97,25 @@ export class DeviceAuthController {
   })
   async pollToken(
     @Body() body: DeviceTokenRequestDto,
-  ): Promise<{ data: DeviceTokenResponseDto }> {
-    const result = await this.deviceAuthService.pollForToken(body.deviceCode);
-
-    return { data: result };
+    @Res() res: any,
+  ) {
+    try {
+      const result = await this.deviceAuthService.pollForToken(body.deviceCode);
+      return res.code(200).send({ data: result });
+    } catch (err) {
+      // Return RFC 8628 error format directly, bypassing the global exception filter
+      // which strips the error/error_description fields
+      if (err instanceof HttpException) {
+        const exceptionResponse = err.getResponse() as Record<string, unknown>;
+        if (exceptionResponse.error) {
+          return res.code(err.getStatus()).send({
+            error: exceptionResponse.error,
+            error_description: exceptionResponse.error_description,
+          });
+        }
+      }
+      throw err;
+    }
   }
 
   /**
