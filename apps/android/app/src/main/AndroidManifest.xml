@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:name=".SinkApplication"
@@ -27,6 +29,7 @@
             </intent-filter>
         </activity>
 
+        <!-- Manifest-declared receiver as fallback -->
         <receiver
             android:name=".messagesync.SmsReceiver"
             android:exported="true"
@@ -35,6 +38,12 @@
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
         </receiver>
+
+        <!-- Foreground service for reliable runtime SMS listening -->
+        <service
+            android:name=".messagesync.SmsListenerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -63,6 +63,9 @@ fun MessageSyncScreen(
             permissionLauncher.launch(REQUIRED_PERMISSIONS)
         } else {
             viewModel.onPermissionsGranted()
+            // Start foreground service for reliable SMS listening
+            val serviceIntent = Intent(context, SmsListenerService::class.java)
+            context.startForegroundService(serviceIntent)
         }
     }
 
