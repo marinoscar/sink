@@ -374,6 +374,7 @@ export async function getDeviceTextMessages(params: MessageQueryParams): Promise
   if (params.dateTo) searchParams.set('dateTo', params.dateTo);
   if (params.sender) searchParams.set('sender', params.sender);
   if (params.deviceId) searchParams.set('deviceId', params.deviceId);
+  if (params.deviceSimId) searchParams.set('deviceSimId', params.deviceSimId);
   return api.get<PaginatedMessages>(`/device-text-messages?${searchParams.toString()}`);
 }
 

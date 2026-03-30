@@ -191,6 +191,7 @@ export interface MessageQueryParams {
   dateTo?: string;
   sender?: string;
   deviceId?: string;
+  deviceSimId?: string;
 }
 
 export interface UserDevice {
