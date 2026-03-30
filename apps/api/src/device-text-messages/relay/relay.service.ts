@@ -126,16 +126,19 @@ export class RelayService {
       smsTimestamp: Date;
       messageHash: string;
       simSlotIndex: number | null;
+      messageType: string;
+      senderDisplayName: string | null;
     }> = [];
 
     for (const msg of dto.messages) {
+      const messageType = msg.messageType ?? 'sms';
       const messageHash = createHash('sha256')
-        .update(`${dto.deviceId}:${msg.sender}:${msg.body}:${msg.smsTimestamp}`)
+        .update(`${dto.deviceId}:${messageType}:${msg.sender}:${msg.body}:${msg.smsTimestamp}`)
         .digest('hex');
 
-      // Resolve SIM if subscriptionId provided
+      // Resolve SIM only for SMS messages
       let deviceSimId: string | null = null;
-      if (msg.simSubscriptionId != null) {
+      if (messageType === 'sms' && msg.simSubscriptionId != null) {
         const sim = await this.prisma.deviceSim.findUnique({
           where: {
             deviceId_subscriptionId: {
@@ -156,7 +159,9 @@ export class RelayService {
         body: msg.body,
         smsTimestamp: new Date(msg.smsTimestamp),
         messageHash,
-        simSlotIndex: msg.simSlotIndex ?? null,
+        simSlotIndex: messageType === 'sms' ? (msg.simSlotIndex ?? null) : null,
+        messageType,
+        senderDisplayName: msg.senderDisplayName ?? null,
       });
     }
 

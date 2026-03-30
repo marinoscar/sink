@@ -7,6 +7,8 @@ const smsItemSchema = z.object({
   smsTimestamp: z.string().datetime(),
   simSubscriptionId: z.number().int().optional(),
   simSlotIndex: z.number().int().optional(),
+  messageType: z.enum(['sms', 'rcs']).default('sms').optional(),
+  senderDisplayName: z.string().max(100).optional(),
 });
 
 export const relaySmsSchema = z.object({
