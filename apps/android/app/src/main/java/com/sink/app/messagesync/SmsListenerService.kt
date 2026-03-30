@@ -63,16 +63,12 @@ class SmsListenerService : Service() {
             priority = 999
         }
 
-        // On Android 13+, we must use the overload with permission + flags
-        // to receive system SMS broadcasts
+        // On Android 13+ (TIRAMISU), runtime receivers must declare exported/not-exported.
+        // SMS is a system broadcast so we need RECEIVER_EXPORTED.
+        // Do NOT pass a broadcastPermission string — that would require the *sender*
+        // to hold that permission, which the telephony system does not declare.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(
-                smsReceiver,
-                filter,
-                Manifest.permission.BROADCAST_SMS,
-                null, // handler — use main thread
-                RECEIVER_EXPORTED
-            )
+            registerReceiver(smsReceiver, filter, RECEIVER_EXPORTED)
         } else {
             registerReceiver(smsReceiver, filter)
         }
