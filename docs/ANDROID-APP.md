@@ -400,6 +400,57 @@ The server computes a `messageHash` (`SHA-256` of `deviceId:sender:body:smsTimes
 - The API response includes `{ stored: N, duplicates: M }` so the app can log accurate counts.
 - If both `SmsReceiver` and `SmsContentObserver` fire for the same message, the second relay attempt produces `duplicates: 1` rather than a duplicate record.
 
+### Sender Blocklist
+
+The sender blocklist lets users prevent specific senders' messages from being relayed to the server. The blocklist is entirely local to the Android device — no blocklist data is sent to or stored on the server.
+
+#### Storage
+
+Two Room tables are added to `SmsOutboxDatabase` as part of the v1-to-v2 schema migration:
+
+- `blocked_senders` — one row per blocked sender address. Messages from a blocked sender are dropped in the capture path before a `SmsOutboxEntity` is ever written.
+- `known_senders` — one row per sender address the app has ever seen, with a `messageCount` (total received, including blocked messages) and a `lastMessageAt` timestamp. Rows are upserted on every incoming SMS regardless of block status, so the count reflects all received messages, not just relayed ones.
+
+#### Capture Behavior
+
+Both `SmsReceiver` and `SmsContentObserver` check the `blocked_senders` table synchronously before inserting into the outbox. If the sender is blocked, the message is discarded and the skip is recorded in Logcat:
+
+```
+Blocked SMS from +15559876543, skipping relay
+```
+
+The `known_senders` row is still upserted even when a message is blocked, keeping the count accurate.
+
+#### Senders Screen
+
+A new **Senders** tab is added to the bottom navigation. It shows all known senders sorted by most recent message descending. For each sender the screen displays:
+
+- The sender address (phone number or short code)
+- The total message count
+- The timestamp of the last received message
+- A toggle switch to block or unblock the sender
+- A **BLOCKED** chip next to the toggle when the sender is blocked
+
+Toggling the switch writes to `blocked_senders` immediately. The change takes effect for the next incoming message; messages already in the outbox are not affected.
+
+#### Database Migration
+
+The Room database version is bumped from 1 to 2. The migration adds both tables:
+
+```sql
+CREATE TABLE IF NOT EXISTS blocked_senders (
+    address TEXT NOT NULL PRIMARY KEY
+);
+
+CREATE TABLE IF NOT EXISTS known_senders (
+    address TEXT NOT NULL PRIMARY KEY,
+    messageCount INTEGER NOT NULL DEFAULT 0,
+    lastMessageAt INTEGER NOT NULL
+);
+```
+
+If the database is created fresh (new install), Room applies the current schema directly and no migration runs.
+
 ### Device and SIM Registration
 
 `DeviceRegistrationManager` is called once after the first successful login. It:
@@ -610,6 +661,8 @@ interface MyFeatureDao {
 
 Provide the database and DAO from a Hilt module (follow the pattern in `SmsOutboxDatabase.kt`).
 
+When a new feature needs Room entities that are closely coupled to the message sync pipeline (for example, the `blocked_senders` and `known_senders` tables added for the sender blocklist), add the entities and DAOs directly to `SmsOutboxDatabase` rather than creating a separate database. This avoids the overhead of an extra database file and keeps related tables in a single transaction boundary. Bump the `version` parameter on `@Database` and provide a `Migration` object for each version increment.
+
 ### 10. Update AndroidManifest.xml if New Permissions Needed
 
 ```xml
@@ -653,6 +706,15 @@ Check the Logs screen (MESSAGE_SYNC feature filter) for relay errors. Common cau
 - Network unavailable — `SmsRelayWorker` will retry automatically when connectivity returns.
 - Authentication failure (401) — the access token may have expired and the refresh token may be invalid. Log out and log in again.
 - Server error (5xx) — WorkManager will retry with exponential backoff (10 seconds, then 20, then 40, up to 5 minutes).
+
+### Messages from a sender still being relayed after blocking
+
+If messages from a blocked sender continue to appear on the server, check the following:
+
+1. **Rebuild required.** If the blocklist feature was added in a new build and the device is running an older APK, the capture path does not include the blocklist check. Install the latest build.
+2. **Content observer not running.** The blocklist check runs inside the SMS capture path, which requires `SmsListenerService` to be active. Verify that the "Message Sync — Listening for incoming SMS" foreground notification is visible. If it is absent, open the app and navigate to the Message Sync screen to restart the service.
+3. **Check Logcat.** Filter by the tag `SmsContentObserver` or `SmsReceiver`. When a message is correctly intercepted and dropped, you will see: `Blocked SMS from <address>, skipping relay`. If this log line is absent, the running code does not include the blocklist check.
+4. **Messages already in the outbox.** Blocking a sender does not retroactively remove `PENDING` records that were written before the block was set. Those records will be relayed on the next `SmsRelayWorker` run.
 
 ### Android 16 — SMS broadcasts not received
 
