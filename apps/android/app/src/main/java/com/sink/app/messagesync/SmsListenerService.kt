@@ -1,6 +1,5 @@
 package com.sink.app.messagesync
 
-import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -12,15 +11,20 @@ import android.os.IBinder
 import android.provider.Telephony
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.sink.app.R
+import com.sink.app.logging.LogFeature
+import com.sink.app.logging.LogRepository
+import dagger.hilt.android.EntryPointAccessors
+import com.sink.app.SinkApplication
 
 /**
- * Foreground Service that registers the SmsReceiver at runtime.
+ * Foreground Service that captures incoming SMS using two strategies:
  *
- * Manifest-declared BroadcastReceivers for SMS_RECEIVED are increasingly
- * blocked by OEMs (Samsung, Xiaomi, etc.) even with correct permissions.
- * A foreground service with a runtime-registered receiver is the most
- * reliable way to capture SMS on modern Android.
+ * 1. BroadcastReceiver (SMS_RECEIVED) — works on Android < 16 and some OEMs
+ * 2. ContentObserver (content://sms) — works on Android 16+ (SDK 36) where
+ *    SMS_RECEIVED broadcasts are no longer delivered to non-default SMS apps
+ *
+ * Both are registered simultaneously; the outbox deduplication ensures no
+ * double-processing.
  */
 class SmsListenerService : Service() {
 
@@ -31,13 +35,21 @@ class SmsListenerService : Service() {
     }
 
     private var smsReceiver: SmsReceiver? = null
+    private var smsContentObserver: SmsContentObserver? = null
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "Service created")
+        Log.d(TAG, "Service created (SDK ${Build.VERSION.SDK_INT})")
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
+
+        val logRepository = getLogRepository()
+
+        // Strategy 1: BroadcastReceiver (may not work on Android 16+)
         registerSmsReceiver()
+
+        // Strategy 2: ContentObserver (reliable on all versions)
+        registerContentObserver(logRepository)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -49,6 +61,7 @@ class SmsListenerService : Service() {
         super.onDestroy()
         Log.d(TAG, "Service destroyed")
         unregisterSmsReceiver()
+        unregisterContentObserver()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -63,29 +76,52 @@ class SmsListenerService : Service() {
             priority = 999
         }
 
-        // On Android 13+ (TIRAMISU), runtime receivers must declare exported/not-exported.
-        // SMS is a system broadcast so we need RECEIVER_EXPORTED.
-        // Do NOT pass a broadcastPermission string — that would require the *sender*
-        // to hold that permission, which the telephony system does not declare.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(smsReceiver, filter, RECEIVER_EXPORTED)
         } else {
             registerReceiver(smsReceiver, filter)
         }
 
-        Log.d(TAG, "SMS receiver registered at runtime (SDK ${Build.VERSION.SDK_INT})")
+        Log.d(TAG, "SMS broadcast receiver registered")
+    }
+
+    private fun registerContentObserver(logRepository: LogRepository?) {
+        if (smsContentObserver != null) return
+
+        smsContentObserver = SmsContentObserver(applicationContext, logRepository)
+        smsContentObserver?.register()
+        Log.d(TAG, "SMS content observer registered")
     }
 
     private fun unregisterSmsReceiver() {
         smsReceiver?.let {
             try {
                 unregisterReceiver(it)
-                Log.d(TAG, "SMS receiver unregistered")
+                Log.d(TAG, "SMS broadcast receiver unregistered")
             } catch (e: Exception) {
                 Log.e(TAG, "Error unregistering receiver", e)
             }
         }
         smsReceiver = null
+    }
+
+    private fun unregisterContentObserver() {
+        smsContentObserver?.unregister()
+        smsContentObserver = null
+        Log.d(TAG, "SMS content observer unregistered")
+    }
+
+    private fun getLogRepository(): LogRepository? {
+        return try {
+            val app = applicationContext as? SinkApplication ?: return null
+            EntryPointAccessors.fromApplication(
+                app,
+                SmsReceiverEntryPoint::class.java
+            ).logRepository()
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not get LogRepository", e)
+            null
+        }
     }
 
     private fun createNotificationChannel() {
