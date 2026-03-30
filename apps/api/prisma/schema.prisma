@@ -474,10 +474,12 @@ model SmsMessage {
   smsTimestamp DateTime @map("sms_timestamp") @db.Timestamptz
   receivedAt   DateTime @default(now()) @map("received_at") @db.Timestamptz
   messageHash  String   @unique @map("message_hash")
-  simSlotIndex Int?     @map("sim_slot_index")
-  carrierName  String?  @map("carrier_name")
-  metadata     Json?
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  simSlotIndex       Int?     @map("sim_slot_index")
+  carrierName        String?  @map("carrier_name")
+  messageType        String   @default("sms") @map("message_type")
+  senderDisplayName  String?  @map("sender_display_name")
+  metadata           Json?
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
   user        User          @relation("UserSmsMessages", fields: [userId], references: [id], onDelete: Cascade)
@@ -489,6 +491,7 @@ model SmsMessage {
   @@index([userId, sender])
   @@index([deviceId])
   @@index([receivedAt])
+  @@index([messageType])
   @@map("sms_messages")
 }
 
