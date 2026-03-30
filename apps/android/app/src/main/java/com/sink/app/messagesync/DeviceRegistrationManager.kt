@@ -18,7 +18,15 @@ class DeviceRegistrationManager @Inject constructor(
     private val simCardReader: SimCardReader,
     private val logRepository: LogRepository
 ) {
+    @Volatile
+    private var isRegistering = false
+
     suspend fun registerDeviceAndSyncSims(): Boolean {
+        if (isRegistering) {
+            logRepository.debug(LogFeature.MESSAGE_SYNC, "Registration already in progress, skipping")
+            return false
+        }
+        isRegistering = true
         return try {
             val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}"
             val request = RegisterDeviceRequest(
@@ -44,8 +52,13 @@ class DeviceRegistrationManager @Inject constructor(
             }
             true
         } catch (e: Exception) {
-            logRepository.error(LogFeature.MESSAGE_SYNC, "Device registration failed: ${e.message}")
+            logRepository.error(LogFeature.MESSAGE_SYNC,
+                "Device registration failed: ${e.javaClass.simpleName}: ${e.message}",
+                details = e.stackTraceToString().take(500)
+            )
             false
+        } finally {
+            isRegistering = false
         }
     }
 }
