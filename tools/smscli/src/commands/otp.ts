@@ -203,13 +203,15 @@ export function registerOtpCommands(program: Command): void {
   otp
     .command('latest')
     .description(
-      'Get the most recent OTP code from a sender without waiting/polling. ' +
+      'Get the most recent OTP code without waiting/polling. ' +
       'Fetches the latest messages, finds the first one containing an OTP code, and returns it. ' +
-      'Use this when you know the OTP has already been sent.',
+      'Use this when you know the OTP has already been sent. ' +
+      'All filters are optional — without --sender, checks messages from any sender.',
     )
     .option(
       '--sender <pattern>',
-      'Filter by sender address (case-insensitive substring match).',
+      'Filter by sender address (case-insensitive substring match). ' +
+      'If omitted, messages from all senders are checked for OTP codes.',
     )
     .option(
       '--number <phone>',

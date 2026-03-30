@@ -350,34 +350,40 @@ Extract OTP (One-Time Password) codes from SMS messages. The core feature for AI
 
 #### `smscli otp wait`
 
-**The flagship command.** Polls the API for a new SMS, extracts the OTP code, and returns it. Exit code 0 on success, 1 on timeout.
+**The flagship command.** Polls the API for new SMS messages, extracts the OTP code, and returns it. Exit code 0 on success, 1 on timeout.
+
+**All filters are optional.** You can omit `--sender` to watch ALL incoming messages for an OTP code — useful when the sender name is unknown or changes between messages.
 
 | Flag | Description |
 |------|-------------|
-| `--sender <pattern>` | **(required)** Sender to watch for. Case-insensitive substring match. |
+| `--sender <pattern>` | Filter by sender (case-insensitive substring). If omitted, checks **all** messages. |
 | `--number <phone>` | Only watch on this phone number/SIM. |
-| `--timeout <seconds>` | Max wait time (default: 120s). |
+| `--timeout <seconds>` | Max wait time (default: 120s). Exit code 1 on timeout. |
 | `--interval <seconds>` | Poll frequency (default: 3s). |
 | `--since <iso-date>` | Look for messages from this time (default: now). |
 | `--device <uuid>` | Limit to a specific device. |
 
 ```bash
-# Basic usage — wait for OTP from MyBank
-smscli otp wait --sender "MyBank"
-
-# AI agent usage — just the code
-smscli otp wait --sender "MyBank" --quiet
+# Wait for OTP from ANY sender (sender unknown or changes)
+smscli otp wait -q
 # 483921
 
-# With phone number filter and custom timeout
-smscli otp wait --sender "Google" --number "+12488057580" --timeout 60
+# Wait for OTP from a specific sender
+smscli otp wait --sender "MyBank" -q
+# 483921
+
+# Filter by receiving phone number (no sender filter)
+smscli otp wait --number "+12488057580" --timeout 60 -q
+
+# With sender filter and phone number
+smscli otp wait --sender "Google" --number "7580" --timeout 60
 
 # JSON output for programmatic use
-smscli otp wait --sender "MyBank" --json
+smscli otp wait --json
 # {"success":true,"data":{"code":"483921","sender":"MyBank Alerts","body":"Your code is 483921","smsTimestamp":"...","receivedAt":"...","messageId":"..."}}
 
 # Capture in a shell variable
-OTP=$(smscli otp wait --sender "MyService" -q)
+OTP=$(smscli otp wait -q)
 echo "Got OTP: $OTP"
 ```
 
@@ -403,15 +409,26 @@ echo "OTP: 789012" | smscli otp extract -q
 
 Get the most recent OTP code without polling. Use when you know the OTP has already arrived.
 
+**All filters are optional.** Without `--sender`, checks the most recent messages from any sender.
+
 | Flag | Description |
 |------|-------------|
-| `--sender <pattern>` | Filter by sender. |
+| `--sender <pattern>` | Filter by sender. If omitted, checks messages from **all** senders. |
 | `--number <phone>` | Filter by receiving number. |
 | `--since <iso-date>` | Only look at messages from this time onwards. |
+| `--device <uuid>` | Limit to a specific device. |
 
 ```bash
-smscli otp latest --sender "Google" --quiet
+# Get the latest OTP from any sender
+smscli otp latest -q
 # 543210
+
+# Get the latest OTP from a specific sender
+smscli otp latest --sender "Google" -q
+# 543210
+
+# Get the latest OTP on a specific phone number
+smscli otp latest --number "7580" --json
 ```
 
 ---
@@ -543,7 +560,8 @@ Claude Code:
 1. Opens bank login page via browser automation
 2. Enters credentials
 3. Bank sends SMS with OTP code
-4. Runs: smscli otp wait --sender "MyBank" --number "+12488057580" --timeout 60 -q
+4. Runs: smscli otp wait --number "+12488057580" --timeout 60 -q
+   (no --sender needed — catches OTP from any sender)
 5. Receives: 483921
 6. Enters OTP code to complete 2FA
 ```
@@ -557,12 +575,15 @@ Claude Code:
 # Trigger the OTP (e.g., via API call or browser automation)
 trigger_otp_send
 
-# Wait for and capture the OTP
-OTP=$(smscli otp wait --sender "MyService" --number "7580" -q --timeout 90)
+# Wait for OTP from any sender (sender name may vary)
+OTP=$(smscli otp wait --number "7580" -q --timeout 90)
 if [ $? -ne 0 ]; then
   echo "Failed to receive OTP" >&2
   exit 1
 fi
+
+# Or filter by sender if known
+# OTP=$(smscli otp wait --sender "MyService" -q --timeout 90)
 
 # Use the OTP
 curl -X POST https://api.example.com/verify -d "code=$OTP"
