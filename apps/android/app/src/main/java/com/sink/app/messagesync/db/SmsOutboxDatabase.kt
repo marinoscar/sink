@@ -14,6 +14,21 @@ import javax.inject.Singleton
 @Database(entities = [SmsOutboxEntity::class], version = 1, exportSchema = false)
 abstract class SmsOutboxDatabase : RoomDatabase() {
     abstract fun smsOutboxDao(): SmsOutboxDao
+
+    companion object {
+        @Volatile
+        private var INSTANCE: SmsOutboxDatabase? = null
+
+        fun getInstance(context: Context): SmsOutboxDatabase {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: Room.databaseBuilder(
+                    context.applicationContext,
+                    SmsOutboxDatabase::class.java,
+                    "sms_outbox.db"
+                ).build().also { INSTANCE = it }
+            }
+        }
+    }
 }
 
 @Module
@@ -22,11 +37,7 @@ object SmsOutboxDatabaseModule {
     @Provides
     @Singleton
     fun provideSmsOutboxDatabase(@ApplicationContext context: Context): SmsOutboxDatabase {
-        return Room.databaseBuilder(
-            context,
-            SmsOutboxDatabase::class.java,
-            "sms_outbox.db"
-        ).build()
+        return SmsOutboxDatabase.getInstance(context)
     }
 
     @Provides
