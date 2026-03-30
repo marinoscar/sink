@@ -153,7 +153,7 @@ fun MessageSyncScreen(
                 ) {
                     Icon(
                         imageVector = when {
-                            !permissionsGranted -> Icons.Default.SmsFailedOutlined
+                            !permissionsGranted -> Icons.Default.SmsFailed
                             state.deviceRegistered -> Icons.Default.CheckCircle
                             else -> Icons.Default.Sync
                         },
