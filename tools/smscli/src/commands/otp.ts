@@ -30,16 +30,19 @@ export function registerOtpCommands(program: Command): void {
   otp
     .command('wait')
     .description(
-      'The primary command for AI agent OTP automation. Polls the API for a new SMS message ' +
-      'matching the specified sender, extracts the OTP code from the message body, and returns ' +
-      'just the code. Exits with code 0 on success, code 1 on timeout. ' +
+      'The primary command for AI agent OTP automation. Polls the API for new SMS messages, ' +
+      'extracts the OTP code from the message body, and returns just the code. ' +
+      'Exits with code 0 on success, code 1 on timeout. ' +
+      'The --sender flag is optional — omit it to watch ALL incoming messages for an OTP code. ' +
+      'This is useful when the sender name is unknown or changes between messages. ' +
       'In quiet mode (-q), prints only the bare numeric code — ideal for shell scripting: ' +
-      'OTP=$(smscli otp wait --sender "MyBank" -q)',
+      'OTP=$(smscli otp wait -q) or OTP=$(smscli otp wait --sender "MyBank" -q)',
     )
-    .requiredOption(
+    .option(
       '--sender <pattern>',
-      '(required) Filter for messages from this sender. Case-insensitive substring match. ' +
-      'Example: --sender "MyBank" catches messages from "MyBank Alerts", "MYBANK", etc.',
+      'Filter for messages from this sender. Case-insensitive substring match. ' +
+      'Example: --sender "MyBank" catches messages from "MyBank Alerts", "MYBANK", etc. ' +
+      'If omitted, all incoming messages are checked for OTP codes.',
     )
     .option(
       '--number <phone>',
@@ -77,12 +80,12 @@ export function registerOtpCommands(program: Command): void {
 
       try {
         const params: MessageQueryParams = {
-          sender: opts.sender,
           dateFrom: startTime,
           page: 1,
           pageSize: 10,
         };
 
+        if (opts.sender) params.sender = opts.sender;
         if (opts.number) {
           params.deviceSimId = await resolvePhoneNumber(opts.number);
         }
@@ -90,8 +93,9 @@ export function registerOtpCommands(program: Command): void {
           params.deviceId = opts.device;
         }
 
+        const senderLabel = opts.sender ? `from "${opts.sender}"` : 'from any sender';
         output.humanOnly(() => {
-          out.info(`Waiting for OTP from "${opts.sender}"…`);
+          out.info(`Waiting for OTP ${senderLabel}…`);
           out.dim(`Timeout: ${opts.timeout}s | Interval: ${opts.interval}s | Since: ${startTime}`);
         });
 
@@ -133,7 +137,7 @@ export function registerOtpCommands(program: Command): void {
         // Timeout
         output.humanOnly(() => out.blank());
         output.fail(
-          `Timeout after ${opts.timeout}s waiting for OTP from "${opts.sender}"`,
+          `Timeout after ${opts.timeout}s waiting for OTP ${senderLabel}`,
           'TIMEOUT',
         );
         process.exit(1);
