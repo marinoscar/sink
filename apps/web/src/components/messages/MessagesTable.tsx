@@ -13,8 +13,10 @@ import {
   CircularProgress,
   Alert,
   Tooltip,
+  IconButton,
+  Snackbar,
 } from '@mui/material';
-import { Sms as SmsIcon } from '@mui/icons-material';
+import { Sms as SmsIcon, ContentCopy } from '@mui/icons-material';
 import type { SmsMessageItem } from '../../types';
 
 const MAX_BODY_PREVIEW = 100;
@@ -97,6 +99,17 @@ export function MessagesTable({
   onPageChange,
   onPageSizeChange,
 }: MessagesTableProps) {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopy = async (msg: SmsMessageItem) => {
+    try {
+      await navigator.clipboard.writeText(msg.body);
+      setCopiedId(msg.id);
+    } catch {
+      // Fallback: silently fail
+    }
+  };
+
   const handleChangePage = (_: unknown, newPage: number) => {
     onPageChange(newPage + 1);
   };
@@ -140,6 +153,7 @@ export function MessagesTable({
   }
 
   return (
+    <>
     <Paper>
       <TableContainer sx={{ overflowX: 'auto' }}>
         <Table size="small">
@@ -150,6 +164,7 @@ export function MessagesTable({
               <TableCell>Message</TableCell>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>Device</TableCell>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>SIM</TableCell>
+              <TableCell />
             </TableRow>
           </TableHead>
           <TableBody>
@@ -176,6 +191,13 @@ export function MessagesTable({
                     <SimCell item={msg} />
                   </Typography>
                 </TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap', width: 48 }}>
+                  <Tooltip title="Copy message">
+                    <IconButton size="small" onClick={() => handleCopy(msg)}>
+                      <ContentCopy fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -191,5 +213,13 @@ export function MessagesTable({
         rowsPerPageOptions={[10, 25, 50, 100]}
       />
     </Paper>
+    <Snackbar
+      open={copiedId !== null}
+      autoHideDuration={2000}
+      onClose={() => setCopiedId(null)}
+      message="Copied to clipboard"
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+    />
+    </>
   );
 }
