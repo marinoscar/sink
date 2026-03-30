@@ -8,6 +8,7 @@ export const queryMessagesSchema = z.object({
   dateTo: z.string().datetime().optional(),
   sender: z.string().optional(),
   deviceId: z.string().uuid().optional(),
+  deviceSimId: z.string().uuid().optional(),
 });
 
 export class QueryMessagesDto extends createZodDto(queryMessagesSchema) {}

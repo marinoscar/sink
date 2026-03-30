@@ -23,6 +23,7 @@ export class DeviceTextMessagesController {
   @ApiQuery({ name: 'dateTo', required: false, type: String, description: 'ISO 8601 datetime' })
   @ApiQuery({ name: 'sender', required: false, type: String })
   @ApiQuery({ name: 'deviceId', required: false, type: String, format: 'uuid' })
+  @ApiQuery({ name: 'deviceSimId', required: false, type: String, format: 'uuid', description: 'Filter by SIM card ID' })
   @ApiResponse({ status: 200, description: 'Paginated list of SMS messages' })
   async listMessages(
     @CurrentUser('id') userId: string,
