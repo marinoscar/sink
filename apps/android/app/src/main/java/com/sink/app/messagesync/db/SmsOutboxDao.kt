@@ -21,4 +21,24 @@ interface SmsOutboxDao {
 
     @Query("SELECT COUNT(*) FROM sms_outbox WHERE status = 'SYNCED'")
     suspend fun syncedCount(): Int
+
+    /**
+     * Find an SMS message from a sender matching the given normalized phone number
+     * within a time window. Used by RcsNotificationListener to detect if an SMS
+     * was already captured for the same sender (preventing SMS/RCS duplicates).
+     *
+     * The query normalizes stored sender values by stripping common non-digit chars.
+     */
+    @Query("""
+        SELECT * FROM sms_outbox
+        WHERE messageType = 'sms'
+          AND smsTimestamp BETWEEN :windowStart AND :windowEnd
+          AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(sender, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '') = :normalizedSender
+        LIMIT 1
+    """)
+    suspend fun findSmsBySenderInWindow(
+        normalizedSender: String,
+        windowStart: Long,
+        windowEnd: Long
+    ): SmsOutboxEntity?
 }

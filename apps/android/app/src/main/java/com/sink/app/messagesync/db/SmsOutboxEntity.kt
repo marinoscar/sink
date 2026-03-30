@@ -12,6 +12,7 @@ data class SmsOutboxEntity(
     val smsTimestamp: Long,
     val subscriptionId: Int = -1,
     val simSlotIndex: Int = -1,
+    val messageType: String = "sms",
     val status: String = OutboxStatus.PENDING.name,
     val createdAt: Long = System.currentTimeMillis()
 )
