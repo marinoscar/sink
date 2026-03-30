@@ -9,6 +9,8 @@ import android.os.Looper
 import android.provider.Telephony
 import android.util.Log
 import androidx.work.*
+import com.sink.app.messagesync.db.BlockedSenderDao
+import com.sink.app.messagesync.db.KnownSenderDao
 import com.sink.app.messagesync.db.SmsOutboxDao
 import com.sink.app.messagesync.db.SmsOutboxDatabase
 import com.sink.app.messagesync.db.SmsOutboxEntity
@@ -28,6 +30,8 @@ import kotlinx.coroutines.launch
 class SmsContentObserver(
     private val context: Context,
     private val logRepository: LogRepository?,
+    private val blockedSenderDao: BlockedSenderDao,
+    private val knownSenderDao: KnownSenderDao,
     handler: Handler = Handler(Looper.getMainLooper())
 ) : ContentObserver(handler) {
 
@@ -68,17 +72,39 @@ class SmsContentObserver(
 
                 Log.d(TAG, "Found ${newMessages.size} new message(s)")
 
+                var relayCount = 0
                 for (msg in newMessages) {
+                    val sender = msg.sender
+
+                    // Always record the sender in known_senders
+                    knownSenderDao.upsert(sender, msg.smsTimestamp)
+
+                    // Check blocklist — skip outbox insert if blocked
+                    if (blockedSenderDao.isBlocked(sender)) {
+                        Log.d(TAG, "Blocked SMS from $sender, skipping relay")
+                        logRepository?.info(
+                            LogFeature.MESSAGE_SYNC,
+                            "Blocked SMS from $sender, skipping relay"
+                        )
+                        continue
+                    }
+
                     smsOutboxDao.insert(msg)
-                    Log.d(TAG, "Queued SMS from ${msg.sender} (${msg.body.length} chars)")
+                    relayCount++
+                    Log.d(TAG, "Queued SMS from $sender (${msg.body.length} chars)")
                     logRepository?.info(
                         LogFeature.MESSAGE_SYNC,
-                        "SMS received from ${msg.sender} (${msg.body.length} chars), queued for sync"
+                        "SMS received from $sender (${msg.body.length} chars), queued for sync"
                     )
                 }
 
                 // Update last processed ID
                 lastProcessedId = newMessages.maxOf { it.smsTimestamp }
+
+                if (relayCount == 0) {
+                    Log.d(TAG, "All new messages were blocked, skipping relay worker")
+                    return@launch
+                }
 
                 // Enqueue relay worker
                 val workRequest = OneTimeWorkRequestBuilder<SmsRelayWorker>()
@@ -101,7 +127,7 @@ class SmsContentObserver(
                         workRequest
                     )
 
-                Log.d(TAG, "Relay worker enqueued for ${newMessages.size} message(s)")
+                Log.d(TAG, "Relay worker enqueued for $relayCount message(s)")
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing new messages", e)
                 logRepository?.error(

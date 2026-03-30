@@ -13,6 +13,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.sink.app.logging.LogFeature
 import com.sink.app.logging.LogRepository
+import com.sink.app.messagesync.db.SmsOutboxDatabase
 import dagger.hilt.android.EntryPointAccessors
 import com.sink.app.SinkApplication
 
@@ -88,7 +89,13 @@ class SmsListenerService : Service() {
     private fun registerContentObserver(logRepository: LogRepository?) {
         if (smsContentObserver != null) return
 
-        smsContentObserver = SmsContentObserver(applicationContext, logRepository)
+        val db = SmsOutboxDatabase.getInstance(applicationContext)
+        smsContentObserver = SmsContentObserver(
+            context = applicationContext,
+            logRepository = logRepository,
+            blockedSenderDao = db.blockedSenderDao(),
+            knownSenderDao = db.knownSenderDao()
+        )
         smsContentObserver?.register()
         Log.d(TAG, "SMS content observer registered")
     }
