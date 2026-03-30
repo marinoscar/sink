@@ -104,7 +104,33 @@ node tools/smscli/bin/smscli.js --help
 npm run smscli -- --help
 ```
 
-### Global installation (optional)
+### System-wide installation (recommended for Linux/Ubuntu)
+
+The included `install.sh` script installs `smscli` so it can be invoked from anywhere. It also handles updates — just run it again.
+
+```bash
+# Install (or update)
+cd tools/smscli
+./install.sh
+
+# Now available globally
+smscli --version
+# 2026.3.1
+
+# Uninstall
+./install.sh --uninstall
+```
+
+**What `install.sh` does:**
+1. Checks prerequisites (Node.js >= 18, npm)
+2. Installs npm dependencies (detects monorepo workspace)
+3. Builds TypeScript
+4. Creates a symlink at `/usr/local/bin/smscli` → `tools/smscli/bin/smscli.js`
+5. Verifies the installation
+
+**To update:** pull the latest code and run `./install.sh` again. It rebuilds and re-links.
+
+### Alternative: npm link
 
 ```bash
 cd tools/smscli
@@ -617,6 +643,27 @@ Codes must be 4-8 digits. Phone numbers with `+` prefix are excluded.
 
 ---
 
+## Versioning
+
+smscli uses **calendar-based versioning**: `YYYY.M.patch`
+
+| Component | Meaning | Example |
+|-----------|---------|---------|
+| `YYYY` | Release year | `2026` |
+| `M` | Release month (no leading zero) | `3` = March |
+| `patch` | Sequential release within the month | `1`, `2`, `3`, … |
+
+**Examples:** `2026.3.1` (first release of March 2026), `2026.3.2` (second release that month), `2026.4.1` (first April release).
+
+The version is defined in a single source of truth: `src/version.ts`. To bump the version, edit that file and run `./install.sh` to update.
+
+```bash
+smscli --version
+# 2026.3.1
+```
+
+---
+
 ## Security
 
 - **Token storage**: Auth tokens stored at `~/.config/smscli/auth.json` with file permissions `0600` (owner-only read/write)
@@ -650,8 +697,10 @@ node tools/smscli/bin/smscli.js --help
 ```
 tools/smscli/
 ├── bin/smscli.js          # Entry point (shebang script)
+├── install.sh             # System-wide installer (Linux/Ubuntu)
 ├── src/
 │   ├── index.ts           # Commander setup, global flags
+│   ├── version.ts         # Version constant (single source of truth)
 │   ├── commands/          # Command implementations
 │   │   ├── auth.ts        # login, logout, status, refresh
 │   │   ├── messages.ts    # list, search, latest, watch, export

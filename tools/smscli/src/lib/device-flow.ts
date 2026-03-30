@@ -1,6 +1,7 @@
 import { config } from '../utils/config.js';
 import * as output from '../utils/output.js';
 import { saveTokens } from './auth-store.js';
+import { VERSION } from '../version.js';
 import type { AuthTokens } from '../utils/types.js';
 
 /** Sleep helper. */
@@ -57,7 +58,7 @@ export async function loginWithDeviceFlow(): Promise<AuthTokens> {
     body: JSON.stringify({
       clientInfo: {
         deviceName: 'Sink SMS CLI',
-        userAgent: 'smscli/1.0.0',
+        userAgent: `smscli/${VERSION}`,
       },
     }),
   });

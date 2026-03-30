@@ -9,6 +9,7 @@ import { registerDevicesCommands } from './commands/devices.js';
 import { registerSendersCommands } from './commands/senders.js';
 import { registerConfigCommands } from './commands/config.js';
 import { registerDoctorCommand } from './commands/doctor.js';
+import { VERSION } from './version.js';
 
 const program = new Command();
 
@@ -22,7 +23,7 @@ program
     'The primary use case is OTP automation: an AI agent invokes "smscli otp wait --sender <name> -q" ' +
     'to receive a bare OTP code it can use in a workflow.',
   )
-  .version('1.0.0')
+  .version(VERSION, '-V, --version', 'Display the current smscli version (format: YYYY.M.patch).')
   .option(
     '--json',
     'Output all results as machine-readable JSON. ' +
