@@ -57,10 +57,12 @@ fun MessageSyncScreen(
         }
     }
 
-    // Request permissions on first load if not granted
+    // Request permissions on first load if not granted, or trigger registration if already granted
     LaunchedEffect(permissionsGranted) {
         if (!permissionsGranted) {
             permissionLauncher.launch(REQUIRED_PERMISSIONS)
+        } else {
+            viewModel.onPermissionsGranted()
         }
     }
 
