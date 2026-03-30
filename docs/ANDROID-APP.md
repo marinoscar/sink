@@ -5,12 +5,14 @@ This guide covers the Sink companion Android app — its architecture, features,
 ## Table of Contents
 
 - [Overview](#overview)
+- [Important Notes](#important-notes)
 - [Architecture](#architecture)
 - [Getting Started](#getting-started)
 - [Authentication Flow](#authentication-flow)
 - [Message Sync Feature](#message-sync-feature)
 - [Logging System](#logging-system)
 - [Adding New Features](#adding-new-features)
+- [Troubleshooting](#troubleshooting)
 - [API Contract](#api-contract)
 - [Build and Release](#build-and-release)
 
@@ -34,7 +36,43 @@ The Sink Android app is a companion application for the Sink platform. It runs o
 | WorkManager | Reliable background tasks |
 | DataStore (Preferences) | Token persistence |
 
-Minimum SDK: API 26 (Android 8.0). Target SDK: API 35.
+Minimum SDK: API 26 (Android 8.0). Target SDK: API 36.
+
+---
+
+## Important Notes
+
+These limitations and requirements were confirmed during real-device testing on a Samsung Galaxy running Android 16 (SDK 36).
+
+### RCS Messages Are Not Captured
+
+The app only captures traditional SMS messages. **RCS (Rich Communication Services) messages are not captured.**
+
+RCS messages are handled by Google Messages via Google's Jibe platform and are not stored in the standard `content://sms` content provider. There is no public Android API to intercept RCS messages.
+
+On modern Samsung and Google phones, RCS is enabled by default. When both the sender and receiver have RCS-capable apps, the conversation upgrades to RCS automatically and bypasses SMS entirely. The app will not see these messages.
+
+**To ensure messages are captured as SMS:**
+
+- The sender must not have RCS enabled, or
+- The user must disable RCS on the device: Google Messages > Settings > RCS chats > Turn off.
+
+**Future consideration:** RCS interception would require a Notification Listener Service or Accessibility Service approach, neither of which uses the SMS content provider.
+
+### Android 16 (SDK 36) Does Not Deliver SMS Broadcasts
+
+On Android 16 (SDK 36), the `SMS_RECEIVED` broadcast is not delivered to apps that are not the default SMS handler. This was confirmed during testing — both manifest-declared and runtime-registered `BroadcastReceiver` instances never fired on Android 16.
+
+The app works around this by using two capture strategies simultaneously. See [SMS Capture](#sms-capture) for details.
+
+### Foreground Service and Battery Settings
+
+The SMS listener requires a foreground service to remain active on OEM devices (particularly Samsung). Without it, the OS terminates the background process and SMS capture stops.
+
+For reliable operation:
+
+- Set battery usage to **Unrestricted**: Settings > Apps > Sink > Battery > Unrestricted.
+- On Samsung: ensure the app is not listed under Settings > Battery > Background usage limits > Sleeping apps or Deep sleeping apps.
 
 ---
 
@@ -61,6 +99,8 @@ com.sink.app/
 
   messagesync/
     SmsReceiver.kt            # BroadcastReceiver: captures SMS_RECEIVED broadcasts
+    SmsContentObserver.kt     # ContentObserver: watches content://sms/inbox directly
+    SmsListenerService.kt     # Foreground service: hosts both capture strategies
     SmsRelayWorker.kt         # WorkManager worker: reads outbox, calls relay API
     DeviceRegistrationManager.kt  # Registers device + syncs SIM cards on first login
     SimCardReader.kt          # Reads active SIM subscriptions via SubscriptionManager
@@ -102,7 +142,7 @@ Hilt manages all dependencies as singletons in `SingletonComponent`:
 ```
 SingletonComponent
   TokenManager          (DataStore wrapper)
-  AuthInterceptor       (OkHttp interceptor, depends on TokenManager)
+  AuthInterceptor       (OkHttp interceptor, depends on TokenManager + separate refresh OkHttpClient)
   OkHttpClient          (depends on AuthInterceptor)
   Retrofit              (depends on OkHttpClient)
   ApiService            (depends on Retrofit)
@@ -114,32 +154,40 @@ SingletonComponent
 
 WorkManager workers (`SmsRelayWorker`, `LogCleanupWorker`) use `@HiltWorker` / `@AssistedInject`. The `SinkApplication` class installs the `HiltWorkerFactory` so WorkManager can inject into workers.
 
+Note: `@AndroidEntryPoint` on `BroadcastReceiver` is unreliable — Hilt injection can silently fail before `onReceive` runs. `SmsReceiver` and `SmsListenerService` therefore resolve dependencies manually using `EntryPointAccessors.fromApplication()` and the Room `getInstance()` singleton rather than field injection. See [Hilt and BroadcastReceiver](#hilt-and-broadcastreceiver) for details.
+
 ### Data Flow: SMS Capture to API
 
 ```
 Incoming SMS
     |
-    v
-SmsReceiver (BroadcastReceiver)
-    |  groups multi-part messages by sender
-    |  reads subscription ID and SIM slot from intent extras
-    v
-SmsOutboxDao.insert()  [Room: sms_outbox table, status = PENDING]
+    +---> SmsReceiver (BroadcastReceiver, runtime-registered)
+    |         works on Android < 16 and some OEMs
     |
-    v
-WorkManager.enqueueUniqueWork("sms_relay", REPLACE)
-    |  constraint: CONNECTED network
-    |  backoff: EXPONENTIAL from WorkRequest.MIN_BACKOFF_MILLIS
-    v
-SmsRelayWorker.doWork()
-    |  reads up to 100 PENDING records
-    |  formats timestamps as ISO 8601 UTC
-    |  calls POST /api/device-text-messages/relay
-    |  on success: marks records as SYNCED
-    |  on failure: returns Result.retry() (triggers exponential backoff)
-    v
-API: stored to sms_messages table (deduplication via messageHash)
+    +---> SmsContentObserver (ContentObserver, registered by SmsListenerService)
+              watches content://sms/inbox
+              tracks last processed SMS ID to detect new entries
+              works on ALL Android versions including 16+
+
+Both strategies write to:
+    SmsOutboxDao.insert()  [Room: sms_outbox table, status = PENDING]
+        |
+        v
+    WorkManager.enqueueUniqueWork("sms_relay", REPLACE)
+        |  constraint: CONNECTED network
+        |  backoff: EXPONENTIAL from WorkRequest.MIN_BACKOFF_MILLIS
+        v
+    SmsRelayWorker.doWork()
+        |  reads up to 100 PENDING records
+        |  formats timestamps as ISO 8601 UTC
+        |  calls POST /api/device-text-messages/relay
+        |  on success: marks records as SYNCED
+        |  on failure: returns Result.retry() (triggers exponential backoff)
+        v
+    API: stored to sms_messages table (deduplication via messageHash)
 ```
+
+Server-side deduplication via `messageHash` prevents double-processing if both strategies fire for the same message.
 
 ---
 
@@ -181,14 +229,16 @@ The app declares these permissions in `AndroidManifest.xml`:
 | Permission | Purpose | Runtime prompt required |
 |-----------|---------|------------------------|
 | `INTERNET` | API communication | No |
-| `RECEIVE_SMS` | Capture incoming SMS | Yes (dangerous permission) |
-| `READ_SMS` | Access SMS content | Yes (dangerous permission) |
+| `RECEIVE_SMS` | Capture incoming SMS broadcasts | Yes (dangerous permission) |
+| `READ_SMS` | Read SMS inbox via ContentObserver | Yes (dangerous permission) |
 | `READ_PHONE_STATE` | Read SIM card info via SubscriptionManager | Yes (dangerous permission) |
-| `POST_NOTIFICATIONS` | Show WorkManager notifications on API 33+ | Yes (dangerous permission) |
+| `POST_NOTIFICATIONS` | Show foreground service notification on API 33+ | Yes (dangerous permission) |
+| `FOREGROUND_SERVICE` | Run SmsListenerService as a foreground service | No |
+| `FOREGROUND_SERVICE_SPECIAL_USE` | Required for foreground service type `specialUse` on API 34+ | No |
 
 The `SmsReceiver` is registered with `android:permission="android.permission.BROADCAST_SMS"` to prevent third-party apps from sending fake SMS broadcasts to it.
 
-Permissions are requested at runtime from the `MessageSyncScreen` when the user enables message sync. If a permission is denied, the affected feature is gracefully degraded (e.g., `SimCardReader` returns an empty list if `READ_PHONE_STATE` is denied).
+**Runtime permission request flow:** Permissions must be requested at runtime — manifest declarations alone are insufficient. The `MessageSyncScreen` prompts for all required permissions on first load and shows a clear error state with "Grant Permissions" and "Open Settings" buttons if any permission is denied. Device registration and SIM sync are deferred until permissions are granted. If permissions were already granted in a previous session, `onPermissionsGranted()` is called immediately on screen load without showing the prompt again.
 
 ---
 
@@ -200,9 +250,9 @@ The app uses the OAuth 2.0 Device Authorization Grant (RFC 8628). There is no us
 
 1. **App starts** — `NavGraph.kt` checks `TokenManager.isLoggedIn`. If no access token is stored, `DeviceAuthScreen` is shown instead of the main navigation.
 
-2. **Request device code** — `DeviceAuthViewModel` calls `POST /api/auth/device/code` with optional `clientInfo` (device name, manufacturer, model, OS version, app version). The server returns a `userCode` and `verificationUri`.
+2. **Request device code** — `DeviceAuthViewModel` calls `POST /api/auth/device/code` with optional `clientInfo` (device name, manufacturer, model, OS version, app version). The server returns a `userCode`, `verificationUri`, and `verificationUriComplete`.
 
-3. **Display code** — The screen shows the `userCode` and `verificationUri`. The user opens the verification URL on another device (phone or computer) and enters the code.
+3. **Display code** — The screen shows the `userCode` and `verificationUri`. An **"Open Activation Page"** button launches the browser directly to `verificationUriComplete` (which pre-fills the code), making it easy to activate from the phone itself.
 
 4. **Poll for token** — The ViewModel polls `POST /api/auth/device/token` every `interval` seconds (returned by the server, default 5 s). Possible poll outcomes:
    - `authorization_pending` — keep polling
@@ -210,6 +260,8 @@ The app uses the OAuth 2.0 Device Authorization Grant (RFC 8628). There is no us
    - `access_denied` — user rejected; reset and show error
    - `expired_token` — code expired; restart flow
    - HTTP 200 with tokens — authorization granted
+
+   The polling loop is resilient to unknown error formats — only the terminal errors `access_denied` and `expired_token` stop polling. Any other error response is logged and polling continues.
 
 5. **Store tokens** — On success, `TokenManager.saveTokens(accessToken, refreshToken)` writes both tokens to the DataStore preferences file (`auth_tokens`).
 
@@ -221,7 +273,7 @@ The app uses the OAuth 2.0 Device Authorization Grant (RFC 8628). There is no us
 
 Tokens are stored in Android DataStore (Preferences) under the filename `auth_tokens`. Three keys are used:
 
-- `access_token` — JWT bearer token
+- `access_token` — JWT bearer token (15-minute TTL by default)
 - `refresh_token` — long-lived refresh token
 - `device_id` — UUID assigned by the API after device registration
 
@@ -237,6 +289,8 @@ DataStore writes are atomic and survive process death.
 4. On successful refresh, stores the new access token and retries the original request once.
 5. If refresh fails, clears all stored tokens; the app returns to the login screen because `isLoggedIn` becomes `false`.
 
+The interceptor uses a **separate `OkHttpClient` instance** for the token refresh call. This avoids interceptor recursion — if the main client were used to call the refresh endpoint, `AuthInterceptor` would intercept that call too, potentially causing an infinite loop.
+
 The interceptor skips auth header injection for `auth/device/code` and `auth/device/token` endpoints, which are public.
 
 ### Logout
@@ -249,15 +303,61 @@ From `SettingsScreen`, the user can tap Logout. `SettingsViewModel` calls `Token
 
 ### SMS Capture
 
-`SmsReceiver` is a `BroadcastReceiver` registered in `AndroidManifest.xml` for the `android.provider.Telephony.SMS_RECEIVED` action with priority 999 (high priority to capture before other apps).
+SMS capture uses two simultaneous strategies hosted inside a foreground service. Both strategies write to the same `SmsOutboxDao`; server-side deduplication via `messageHash` handles any overlap.
 
-When an SMS arrives:
+#### Strategy 1: BroadcastReceiver (SmsReceiver)
+
+`SmsReceiver` is registered at runtime (not only in the manifest) for the `android.provider.Telephony.SMS_RECEIVED` action with priority 999. This strategy works on Android versions below 16 and on some OEM devices.
+
+When an SMS broadcast is received:
 
 1. `Telephony.Sms.Intents.getMessagesFromIntent(intent)` extracts all message PDUs.
-2. PDUs from the same sender are grouped together and concatenated — this handles multi-part (long) SMS messages correctly.
-3. The subscription ID and SIM slot index are read from intent extras (`"subscription"` and `"slot"`). These are `-1` if unavailable (single-SIM devices or older Android versions).
+2. PDUs from the same sender are grouped and concatenated to handle multi-part (long) SMS messages.
+3. The subscription ID and SIM slot index are read from intent extras (`"subscription"` and `"slot"`). These are `-1` if unavailable.
 4. A `SmsOutboxEntity` is inserted into Room with status `PENDING`.
-5. `WorkManager.enqueueUniqueWork("sms_relay", REPLACE, ...)` is called to schedule an immediate relay attempt. `REPLACE` policy ensures only one relay job is queued at a time even if multiple messages arrive rapidly.
+5. `WorkManager.enqueueUniqueWork("sms_relay", REPLACE, ...)` schedules an immediate relay attempt.
+
+#### Strategy 2: ContentObserver (SmsContentObserver)
+
+`SmsContentObserver` watches `content://sms/inbox` for database changes. This strategy works on all Android versions, including Android 16 (SDK 36) where `SMS_RECEIVED` broadcasts are not delivered to non-default SMS apps.
+
+When a change is detected:
+
+1. The observer queries `content://sms/inbox` for messages with an ID greater than the last processed SMS ID.
+2. Any new messages found are inserted into `SmsOutboxDao` with status `PENDING`.
+3. The last processed SMS ID is updated so subsequent queries do not re-process old messages.
+4. `WorkManager.enqueueUniqueWork("sms_relay", REPLACE, ...)` schedules a relay attempt.
+
+The ContentObserver detects messages that the default SMS app (e.g., Google Messages) has already written to the shared SMS content provider. It does not require broadcast delivery.
+
+#### Why Both Strategies Are Needed
+
+Neither strategy is sufficient alone:
+
+- The `BroadcastReceiver` approach is not delivered on Android 16+ for non-default SMS apps.
+- The `ContentObserver` approach requires polling the content provider; it fires only after the default SMS app has stored the message, which introduces a small delay and requires `READ_SMS` permission.
+
+Running both in parallel maximizes reliability across Android versions and OEM configurations.
+
+### Foreground Service (SmsListenerService)
+
+Both capture strategies are hosted in `SmsListenerService`, a foreground service declared with `android:foregroundServiceType="specialUse"` in the manifest. The service:
+
+- Starts automatically when the app launches (after permissions are granted).
+- Shows a persistent low-priority notification: "Message Sync — Listening for incoming SMS."
+- Registers `SmsReceiver` at runtime and instantiates `SmsContentObserver`.
+- Keeps the process alive on OEMs like Samsung that aggressively terminate background receivers.
+
+Without the foreground service, SMS capture becomes unreliable after the app is backgrounded.
+
+### Hilt and BroadcastReceiver
+
+`@AndroidEntryPoint` on `BroadcastReceiver` is unreliable — Hilt injection can silently fail before `onReceive` executes, producing a crash with zero log output. `SmsReceiver` and `SmsListenerService` therefore resolve dependencies manually:
+
+- Room database: via the `SmsOutboxDatabase.getInstance()` static singleton.
+- `LogRepository`: via `EntryPointAccessors.fromApplication(context, LogEntryPoint::class.java)`.
+
+Do not use field injection (`@Inject`) in `SmsReceiver` or `SmsListenerService`.
 
 ### Multi-SIM Support
 
@@ -298,6 +398,7 @@ The server computes a `messageHash` (`SHA-256` of `deviceId:sender:body:smsTimes
 
 - If the Android app retries after a network timeout (message was received by the server but the response was lost), the duplicate is silently skipped.
 - The API response includes `{ stored: N, duplicates: M }` so the app can log accurate counts.
+- If both `SmsReceiver` and `SmsContentObserver` fire for the same message, the second relay attempt produces `duplicates: 1` rather than a duplicate record.
 
 ### Device and SIM Registration
 
@@ -306,6 +407,8 @@ The server computes a `messageHash` (`SHA-256` of `deviceId:sender:body:smsTimes
 1. Calls `POST /api/device-text-messages/devices/register` with device metadata (name, platform, manufacturer, model, OS version, app version). The server upserts by `(userId, name)`, so re-running registration on the same device is safe.
 2. Stores the returned `deviceId` in `TokenManager`.
 3. Calls `POST /api/device-text-messages/devices/:deviceId/sims` with the SIM list from `SimCardReader`. The server upserts SIMs and removes any SIM records that are no longer present on the device.
+
+A guard in `DeviceRegistrationManager` prevents multiple concurrent registration attempts. The "Refresh Stats" / "Retry Connection" button in `MessageSyncScreen` retries registration if it has not yet succeeded (e.g., after a server deployment or database migration).
 
 ---
 
@@ -329,13 +432,15 @@ logRepository.error(LogFeature.MESSAGE_SYNC, "Relay failed", details = exception
 
 All four methods (`debug`, `info`, `warn`, `error`) accept an optional `details: String?` parameter for additional context (e.g., stack trace excerpt, raw error message).
 
+In `SmsReceiver` and `SmsListenerService`, resolve `LogRepository` via `EntryPointAccessors` rather than field injection.
+
 ### LogFeature Enum
 
 `LogFeature` categorizes logs by the feature that emitted them. Current values:
 
 | Enum value | Display name | Used by |
 |-----------|-------------|--------|
-| `MESSAGE_SYNC` | Message Sync | `SmsRelayWorker`, `DeviceRegistrationManager`, `SmsReceiver` indirectly |
+| `MESSAGE_SYNC` | Message Sync | `SmsRelayWorker`, `DeviceRegistrationManager`, `SmsReceiver`, `SmsContentObserver` |
 | `DEVICE_AUTH` | Device Auth | `DeviceAuthViewModel` |
 | `GENERAL` | General | `LogCleanupWorker`, catch-all |
 
@@ -512,6 +617,46 @@ Provide the database and DAO from a Hilt module (follow the pattern in `SmsOutbo
 ```
 
 For dangerous permissions, also add runtime permission request logic in your screen composable using `rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission())`.
+
+---
+
+## Troubleshooting
+
+### No messages are being captured
+
+**Check 1 — RCS is active.** On modern Samsung and Google devices, conversations between two RCS-capable users travel via RCS, not SMS. The app cannot capture RCS messages. To verify: send a test SMS from a device that does not have RCS (e.g., a basic phone or a carrier that does not support RCS). If that message appears but messages from an iPhone or another Android do not, RCS is the cause. Disable RCS in Google Messages: Settings > RCS chats > Turn off.
+
+**Check 2 — Permissions not granted.** Open the app and navigate to the Message Sync screen. If a permissions prompt or error banner is visible, tap "Grant Permissions". If the screen shows permissions are granted but messages still do not arrive, check that `READ_SMS` and `RECEIVE_SMS` are both listed as "Allowed" under Settings > Apps > Sink > Permissions.
+
+**Check 3 — Battery optimization is restricting the app.** Navigate to Settings > Apps > Sink > Battery and set the mode to "Unrestricted". On Samsung, also check Settings > Battery > Background usage limits and remove Sink from any sleeping or deep-sleeping lists.
+
+**Check 4 — Foreground service is not running.** The persistent "Message Sync — Listening for incoming SMS" notification should be visible in the notification shade when the app is active. If it is absent, open the app and navigate to Message Sync to restart the service.
+
+### Permissions are not being prompted
+
+If the app does not show the permission prompt on the Message Sync screen, the permissions may have been previously denied with "Don't ask again". In this case the system suppresses future prompts. Tap "Open Settings" in the app and grant the permissions manually, or uninstall and reinstall the app to reset permission state.
+
+### Device registration fails
+
+Device registration requires a reachable API and a fully applied database migration. If registration fails:
+
+1. Confirm the API is accessible (check the Logs screen for connection errors).
+2. Confirm the database migration that creates the `devices` table has been applied.
+3. Tap "Refresh Stats" / "Retry Connection" on the Message Sync screen to reattempt registration.
+
+Multiple concurrent registration attempts are prevented by an internal guard — tapping the button repeatedly is safe.
+
+### Messages captured but not syncing to the server
+
+Check the Logs screen (MESSAGE_SYNC feature filter) for relay errors. Common causes:
+
+- Network unavailable — `SmsRelayWorker` will retry automatically when connectivity returns.
+- Authentication failure (401) — the access token may have expired and the refresh token may be invalid. Log out and log in again.
+- Server error (5xx) — WorkManager will retry with exponential backoff (10 seconds, then 20, then 40, up to 5 minutes).
+
+### Android 16 — SMS broadcasts not received
+
+This is expected behavior. Android 16 (SDK 36) does not deliver `SMS_RECEIVED` broadcasts to non-default SMS apps. The `SmsContentObserver` strategy handles capture on Android 16 and will log entries under MESSAGE_SYNC when messages are detected via the content provider.
 
 ---
 

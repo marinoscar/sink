@@ -17,6 +17,8 @@ This document covers the server-side SMS relay feature: database schema, API end
 
 The SMS relay feature allows an Android companion app to forward incoming SMS messages to the Sink API. Messages are stored in PostgreSQL and exposed through a query API for use in the web UI.
 
+**Important limitation — RCS messages are not relayed.** The Android app only captures traditional SMS messages stored in the `content://sms` content provider. RCS (Rich Communication Services) messages are handled by Google Messages via Google's Jibe platform and are not stored in the standard SMS content provider. There is no public Android API to intercept RCS messages. On modern Samsung and Google devices, RCS is enabled by default; when both sender and receiver have RCS-capable apps, messages travel via RCS and the relay feature will not see them. See the Android App documentation for workarounds.
+
 **Architecture:**
 
 ```
@@ -39,6 +41,7 @@ Web UI  <-- GET /api/device-text-messages (paginated, filterable)
 - SMS messages are linked to both a device and optionally a SIM.
 - A `messageHash` unique constraint provides idempotent relay — the Android app can safely retry without creating duplicates.
 - The module is split into two controllers: `RelayController` handles device/SIM management and message ingestion; `DeviceTextMessagesController` handles message querying.
+- The Android app uses two capture strategies simultaneously: a `BroadcastReceiver` for `SMS_RECEIVED` (works on Android below 16 and some OEMs) and a `ContentObserver` on `content://sms/inbox` (works on all versions, including Android 16 / SDK 36, where `SMS_RECEIVED` is not delivered to non-default SMS apps). Server-side deduplication via `messageHash` handles any overlap between the two strategies.
 
 ---
 
