@@ -13,7 +13,7 @@ export class DeviceTextMessagesService {
    * List SMS messages for the current user with optional filtering and pagination.
    */
   async listMessages(userId: string, query: QueryMessagesDto) {
-    const { page, pageSize, dateFrom, dateTo, sender, deviceId, deviceSimId } = query;
+    const { page, pageSize, dateFrom, dateTo, sender, deviceId, deviceSimId, messageType } = query;
     const skip = (page - 1) * pageSize;
 
     const where: Prisma.SmsMessageWhereInput = { userId };
@@ -28,6 +28,10 @@ export class DeviceTextMessagesService {
 
     if (deviceSimId) {
       where.deviceSimId = deviceSimId;
+    }
+
+    if (messageType) {
+      where.messageType = messageType;
     }
 
     if (dateFrom || dateTo) {
