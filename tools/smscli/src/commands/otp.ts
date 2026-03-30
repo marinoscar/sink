@@ -182,7 +182,7 @@ export function registerOtpCommands(program: Command): void {
         output.result(
           { code, source: text },
           () => {
-            console.log(out.blank());
+            out.blank();
             console.log(`  OTP Code: ${code}`);
           },
           () => console.log(code),
