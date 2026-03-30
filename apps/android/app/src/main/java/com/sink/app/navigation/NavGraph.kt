@@ -11,11 +11,13 @@ import androidx.navigation.compose.*
 import com.sink.app.auth.DeviceAuthScreen
 import com.sink.app.auth.DeviceAuthViewModel
 import com.sink.app.messagesync.MessageSyncScreen
+import com.sink.app.messagesync.SendersScreen
 import com.sink.app.logging.LogsScreen
 import com.sink.app.settings.SettingsScreen
 
 sealed class Screen(val route: String, val label: String) {
     object MessageSync : Screen("message_sync", "Message Sync")
+    object Senders : Screen("senders", "Senders")
     object Logs : Screen("logs", "Logs")
     object Settings : Screen("settings", "Settings")
 }
@@ -31,7 +33,7 @@ fun SinkNavHost() {
     }
 
     val navController = rememberNavController()
-    val bottomNavItems = listOf(Screen.MessageSync, Screen.Logs, Screen.Settings)
+    val bottomNavItems = listOf(Screen.MessageSync, Screen.Senders, Screen.Logs, Screen.Settings)
 
     Scaffold(
         bottomBar = {
@@ -69,6 +71,7 @@ fun SinkNavHost() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.MessageSync.route) { MessageSyncScreen() }
+            composable(Screen.Senders.route) { SendersScreen() }
             composable(Screen.Logs.route) { LogsScreen() }
             composable(Screen.Settings.route) { SettingsScreen() }
         }
