@@ -10,7 +10,10 @@
     "api:test": "npm -w apps/api test",
     "web:test": "npm -w apps/web test",
     "app": "node tools/app/bin/app.js",
-    "app:build": "npm -w tools/app run build"
+    "app:build": "npm -w tools/app run build",
+    "smscli": "node tools/smscli/bin/smscli.js",
+    "smscli:build": "npm -w tools/smscli run build",
+    "smscli:test": "npm -w tools/smscli run test"
   },
   "overrides": {
     "@nestjs/common": "^11.1.12",
