@@ -1,5 +1,12 @@
 package com.sink.app.messagesync
 
+import android.Manifest
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -7,9 +14,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sink.app.ui.components.StatusCard
+
+private val REQUIRED_PERMISSIONS = buildList {
+    add(Manifest.permission.RECEIVE_SMS)
+    add(Manifest.permission.READ_SMS)
+    add(Manifest.permission.READ_PHONE_STATE)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        add(Manifest.permission.POST_NOTIFICATIONS)
+    }
+}.toTypedArray()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -17,6 +34,35 @@ fun MessageSyncScreen(
     viewModel: MessageSyncViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
+
+    // Permission state
+    var permissionsGranted by remember { mutableStateOf(false) }
+    var permissionsDenied by remember { mutableStateOf(false) }
+
+    // Check permissions on composition
+    LaunchedEffect(Unit) {
+        permissionsGranted = REQUIRED_PERMISSIONS.all { perm ->
+            context.checkSelfPermission(perm) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        permissionsGranted = results.values.all { it }
+        permissionsDenied = !permissionsGranted
+        if (permissionsGranted) {
+            viewModel.onPermissionsGranted()
+        }
+    }
+
+    // Request permissions on first load if not granted
+    LaunchedEffect(permissionsGranted) {
+        if (!permissionsGranted) {
+            permissionLauncher.launch(REQUIRED_PERMISSIONS)
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -29,14 +75,74 @@ fun MessageSyncScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Permissions warning
+            if (!permissionsGranted) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                modifier = Modifier.size(32.dp),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Permissions Required",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "SMS and phone permissions are needed to capture and relay messages. " +
+                                    "Without these permissions, Message Sync cannot work.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { permissionLauncher.launch(REQUIRED_PERMISSIONS) }
+                            ) {
+                                Text("Grant Permissions")
+                            }
+                            if (permissionsDenied) {
+                                TextButton(
+                                    onClick = {
+                                        // Open app settings if user denied and needs to grant manually
+                                        context.startActivity(
+                                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                data = Uri.fromParts("package", context.packageName, null)
+                                            }
+                                        )
+                                    }
+                                ) {
+                                    Text("Open Settings")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Status card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (state.deviceRegistered)
-                        MaterialTheme.colorScheme.primaryContainer
-                    else
-                        MaterialTheme.colorScheme.surfaceVariant
+                    containerColor = when {
+                        !permissionsGranted -> MaterialTheme.colorScheme.surfaceVariant
+                        state.deviceRegistered -> MaterialTheme.colorScheme.primaryContainer
+                        else -> MaterialTheme.colorScheme.surfaceVariant
+                    }
                 )
             ) {
                 Row(
@@ -46,35 +152,46 @@ fun MessageSyncScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = if (state.deviceRegistered) Icons.Default.CheckCircle
-                        else Icons.Default.Sync,
+                        imageVector = when {
+                            !permissionsGranted -> Icons.Default.SmsFailedOutlined
+                            state.deviceRegistered -> Icons.Default.CheckCircle
+                            else -> Icons.Default.Sync
+                        },
                         contentDescription = null,
                         modifier = Modifier.size(48.dp),
-                        tint = if (state.deviceRegistered)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = when {
+                            !permissionsGranted -> MaterialTheme.colorScheme.error
+                            state.deviceRegistered -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
                         Text(
-                            text = if (state.deviceRegistered) "Active" else "Connecting...",
+                            text = when {
+                                !permissionsGranted -> "Inactive"
+                                state.deviceRegistered -> "Active"
+                                else -> "Connecting..."
+                            },
                             style = MaterialTheme.typography.titleLarge,
-                            color = if (state.deviceRegistered)
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            else
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                            color = when {
+                                !permissionsGranted -> MaterialTheme.colorScheme.onSurfaceVariant
+                                state.deviceRegistered -> MaterialTheme.colorScheme.onPrimaryContainer
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                         )
                         Text(
-                            text = if (state.deviceRegistered)
-                                "SMS messages are being synced"
-                            else
-                                "Registering device...",
+                            text = when {
+                                !permissionsGranted -> "Permissions not granted"
+                                state.deviceRegistered -> "SMS messages are being synced"
+                                else -> "Registering device..."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
-                            color = if (state.deviceRegistered)
-                                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                            else
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            color = when {
+                                !permissionsGranted -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                state.deviceRegistered -> MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            }
                         )
                     }
                 }

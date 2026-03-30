@@ -33,7 +33,6 @@ class MessageSyncViewModel @Inject constructor(
 
     init {
         loadStats()
-        registerDevice()
     }
 
     private fun loadStats() {
@@ -55,6 +54,10 @@ class MessageSyncViewModel @Inject constructor(
             deviceRegistrationManager.registerDeviceAndSyncSims()
             _state.update { it.copy(deviceRegistered = true) }
         }
+    }
+
+    fun onPermissionsGranted() {
+        registerDevice()
     }
 
     fun refreshStats() {
