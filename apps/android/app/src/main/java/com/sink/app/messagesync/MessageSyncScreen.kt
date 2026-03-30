@@ -154,6 +154,7 @@ fun MessageSyncScreen(
                     Icon(
                         imageVector = when {
                             !permissionsGranted -> Icons.Default.SmsFailed
+                            state.registrationError != null -> Icons.Default.ErrorOutline
                             state.deviceRegistered -> Icons.Default.CheckCircle
                             else -> Icons.Default.Sync
                         },
@@ -161,6 +162,7 @@ fun MessageSyncScreen(
                         modifier = Modifier.size(48.dp),
                         tint = when {
                             !permissionsGranted -> MaterialTheme.colorScheme.error
+                            state.registrationError != null -> MaterialTheme.colorScheme.error
                             state.deviceRegistered -> MaterialTheme.colorScheme.primary
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         }
@@ -170,12 +172,14 @@ fun MessageSyncScreen(
                         Text(
                             text = when {
                                 !permissionsGranted -> "Inactive"
+                                state.registrationError != null -> "Error"
                                 state.deviceRegistered -> "Active"
                                 else -> "Connecting..."
                             },
                             style = MaterialTheme.typography.titleLarge,
                             color = when {
                                 !permissionsGranted -> MaterialTheme.colorScheme.onSurfaceVariant
+                                state.registrationError != null -> MaterialTheme.colorScheme.error
                                 state.deviceRegistered -> MaterialTheme.colorScheme.onPrimaryContainer
                                 else -> MaterialTheme.colorScheme.onSurfaceVariant
                             }
@@ -183,12 +187,14 @@ fun MessageSyncScreen(
                         Text(
                             text = when {
                                 !permissionsGranted -> "Permissions not granted"
+                                state.registrationError != null -> state.registrationError
                                 state.deviceRegistered -> "SMS messages are being synced"
                                 else -> "Registering device..."
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = when {
                                 !permissionsGranted -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                state.registrationError != null -> MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
                                 state.deviceRegistered -> MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                 else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             }
@@ -216,14 +222,14 @@ fun MessageSyncScreen(
                 )
             }
 
-            // Refresh button
+            // Refresh / Retry button
             OutlinedButton(
                 onClick = { viewModel.refreshStats() },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(Icons.Default.Refresh, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Refresh Stats")
+                Text(if (!state.deviceRegistered) "Retry Connection" else "Refresh Stats")
             }
 
             // Info section

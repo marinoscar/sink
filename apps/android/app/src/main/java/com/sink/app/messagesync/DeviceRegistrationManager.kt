@@ -18,8 +18,8 @@ class DeviceRegistrationManager @Inject constructor(
     private val simCardReader: SimCardReader,
     private val logRepository: LogRepository
 ) {
-    suspend fun registerDeviceAndSyncSims() {
-        try {
+    suspend fun registerDeviceAndSyncSims(): Boolean {
+        return try {
             val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}"
             val request = RegisterDeviceRequest(
                 name = deviceName,
@@ -42,8 +42,10 @@ class DeviceRegistrationManager @Inject constructor(
                 apiService.syncSims(deviceId, SyncSimsRequest(sims))
                 logRepository.info(LogFeature.MESSAGE_SYNC, "Synced ${sims.size} SIM card(s)")
             }
+            true
         } catch (e: Exception) {
             logRepository.error(LogFeature.MESSAGE_SYNC, "Device registration failed: ${e.message}")
+            false
         }
     }
 }

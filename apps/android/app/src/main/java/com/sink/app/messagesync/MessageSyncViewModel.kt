@@ -18,7 +18,8 @@ data class MessageSyncState(
     val pendingCount: Int = 0,
     val syncedCount: Int = 0,
     val isLoading: Boolean = true,
-    val deviceRegistered: Boolean = false
+    val deviceRegistered: Boolean = false,
+    val registrationError: String? = null
 )
 
 @HiltViewModel
@@ -37,6 +38,7 @@ class MessageSyncViewModel @Inject constructor(
 
     private fun loadStats() {
         viewModelScope.launch {
+            _state.update { it.copy(isLoading = true) }
             try {
                 val pending = smsOutboxDao.pendingCount()
                 val synced = smsOutboxDao.syncedCount()
@@ -51,8 +53,14 @@ class MessageSyncViewModel @Inject constructor(
 
     private fun registerDevice() {
         viewModelScope.launch {
-            deviceRegistrationManager.registerDeviceAndSyncSims()
-            _state.update { it.copy(deviceRegistered = true) }
+            _state.update { it.copy(registrationError = null) }
+            try {
+                val success = deviceRegistrationManager.registerDeviceAndSyncSims()
+                _state.update { it.copy(deviceRegistered = success, registrationError = if (!success) "Registration failed. Tap Retry." else null) }
+            } catch (e: Exception) {
+                logRepository.error(LogFeature.MESSAGE_SYNC, "Registration exception: ${e.message}")
+                _state.update { it.copy(deviceRegistered = false, registrationError = "Registration failed: ${e.message}") }
+            }
         }
     }
 
@@ -62,5 +70,9 @@ class MessageSyncViewModel @Inject constructor(
 
     fun refreshStats() {
         loadStats()
+        // Retry device registration if it hasn't succeeded yet
+        if (!_state.value.deviceRegistered) {
+            registerDevice()
+        }
     }
 }
