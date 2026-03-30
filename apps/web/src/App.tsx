@@ -21,6 +21,7 @@ const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
 const PersonalAccessTokensPage = lazy(() => import('./pages/PersonalAccessTokensPage'));
 const CalendarSyncPage = lazy(() => import('./pages/CalendarSyncPage'));
 const CalendarImportPage = lazy(() => import('./pages/CalendarImportPage'));
+const DevicesPage = lazy(() => import('./pages/DevicesPage'));
 const MessagesPage = lazy(() => import('./pages/MessagesPage'));
 
 // Test login page (development only)
@@ -59,6 +60,7 @@ function AppRoutes() {
                 <Route path="/admin/settings" element={<SystemSettingsPage />} />
                 <Route path="/calendar/sync" element={<CalendarSyncPage />} />
                 <Route path="/calendar/import" element={<CalendarImportPage />} />
+                <Route path="/devices" element={<DevicesPage />} />
                 <Route path="/messages" element={<MessagesPage />} />
               </Route>
             </Route>

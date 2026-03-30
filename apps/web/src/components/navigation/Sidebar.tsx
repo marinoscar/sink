@@ -20,6 +20,7 @@ import {
   Sync as SyncIcon,
   UploadFile as UploadFileIcon,
   Sms as SmsIcon,
+  PhoneAndroid as PhoneAndroidIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -42,6 +43,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       label: 'Home',
       icon: <HomeIcon />,
       path: '/',
+      visible: true,
+    },
+    {
+      label: 'Devices',
+      icon: <PhoneAndroidIcon />,
+      path: '/devices',
       visible: true,
     },
     {
