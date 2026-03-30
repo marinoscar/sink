@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import {
   FormControl,
   InputLabel,
@@ -6,10 +5,11 @@ import {
   MenuItem,
   type SelectChangeEvent,
 } from '@mui/material';
-import { getDeviceTextMessageDevices } from '../../services/api';
 import type { UserDevice } from '../../types';
 
 interface MessageDeviceFilterProps {
+  devices: UserDevice[];
+  value: string;
   onDeviceChange: (deviceId?: string) => void;
 }
 
@@ -20,21 +20,9 @@ function getDeviceLabel(device: UserDevice): string {
   return device.name;
 }
 
-export function MessageDeviceFilter({ onDeviceChange }: MessageDeviceFilterProps) {
-  const [devices, setDevices] = useState<UserDevice[]>([]);
-  const [value, setValue] = useState('');
-
-  useEffect(() => {
-    getDeviceTextMessageDevices()
-      .then(setDevices)
-      .catch(() => {
-        // Non-fatal: filter degrades gracefully
-      });
-  }, []);
-
+export function MessageDeviceFilter({ devices, value, onDeviceChange }: MessageDeviceFilterProps) {
   const handleChange = (event: SelectChangeEvent<string>) => {
     const newValue = event.target.value;
-    setValue(newValue);
     onDeviceChange(newValue || undefined);
   };
 

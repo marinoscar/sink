@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Container, Typography, Box } from '@mui/material';
 import { MessagesToolbar } from '../components/messages/MessagesToolbar';
 import { MessagesTable } from '../components/messages/MessagesTable';
@@ -6,6 +7,9 @@ import { getDeviceTextMessages } from '../services/api';
 import type { SmsMessageItem, MessageQueryParams } from '../types';
 
 export default function MessagesPage() {
+  const [searchParams] = useSearchParams();
+  const initialDeviceId = searchParams.get('deviceId') || undefined;
+
   const [messages, setMessages] = useState<SmsMessageItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -16,7 +20,8 @@ export default function MessagesPage() {
   const [dateFrom, setDateFrom] = useState<string | undefined>(undefined);
   const [dateTo, setDateTo] = useState<string | undefined>(undefined);
   const [sender, setSender] = useState<string | undefined>(undefined);
-  const [deviceId, setDeviceId] = useState<string | undefined>(undefined);
+  const [deviceId, setDeviceId] = useState<string | undefined>(initialDeviceId);
+  const [deviceSimId, setDeviceSimId] = useState<string | undefined>(undefined);
 
   const fetchMessages = useCallback(async (params: MessageQueryParams) => {
     setIsLoading(true);
@@ -35,8 +40,8 @@ export default function MessagesPage() {
   }, []);
 
   useEffect(() => {
-    fetchMessages({ page, pageSize, dateFrom, dateTo, sender, deviceId });
-  }, [page, pageSize, dateFrom, dateTo, sender, deviceId, fetchMessages]);
+    fetchMessages({ page, pageSize, dateFrom, dateTo, sender, deviceId, deviceSimId });
+  }, [page, pageSize, dateFrom, dateTo, sender, deviceId, deviceSimId, fetchMessages]);
 
   const handleDateChange = (from?: string, to?: string) => {
     setDateFrom(from);
@@ -51,6 +56,11 @@ export default function MessagesPage() {
 
   const handleDeviceChange = (newDeviceId?: string) => {
     setDeviceId(newDeviceId);
+    setPage(1);
+  };
+
+  const handleSimChange = (newSimId?: string) => {
+    setDeviceSimId(newSimId);
     setPage(1);
   };
 
@@ -73,6 +83,9 @@ export default function MessagesPage() {
         onDateChange={handleDateChange}
         onSenderChange={handleSenderChange}
         onDeviceChange={handleDeviceChange}
+        onSimChange={handleSimChange}
+        messages={messages}
+        initialDeviceId={initialDeviceId}
       />
 
       <Box sx={{ mt: 2 }}>
