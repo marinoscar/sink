@@ -45,6 +45,17 @@
             android:exported="false"
             android:foregroundServiceType="specialUse" />
 
+        <!-- NotificationListenerService for RCS message capture from Google Messages -->
+        <service
+            android:name=".messagesync.RcsNotificationListener"
+            android:exported="true"
+            android:label="Sink - Message notifications"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
