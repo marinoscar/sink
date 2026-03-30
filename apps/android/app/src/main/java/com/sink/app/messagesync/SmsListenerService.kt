@@ -1,5 +1,6 @@
 package com.sink.app.messagesync
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -56,17 +57,27 @@ class SmsListenerService : Service() {
         if (smsReceiver != null) return
 
         smsReceiver = SmsReceiver()
-        val filter = IntentFilter(Telephony.Sms.Intents.SMS_RECEIVED_ACTION).apply {
+        val filter = IntentFilter().apply {
+            addAction(Telephony.Sms.Intents.SMS_RECEIVED_ACTION)
+            addAction("android.provider.Telephony.SMS_RECEIVED")
             priority = 999
         }
 
+        // On Android 13+, we must use the overload with permission + flags
+        // to receive system SMS broadcasts
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(smsReceiver, filter, RECEIVER_EXPORTED)
+            registerReceiver(
+                smsReceiver,
+                filter,
+                Manifest.permission.BROADCAST_SMS,
+                null, // handler — use main thread
+                RECEIVER_EXPORTED
+            )
         } else {
             registerReceiver(smsReceiver, filter)
         }
 
-        Log.d(TAG, "SMS receiver registered at runtime")
+        Log.d(TAG, "SMS receiver registered at runtime (SDK ${Build.VERSION.SDK_INT})")
     }
 
     private fun unregisterSmsReceiver() {
