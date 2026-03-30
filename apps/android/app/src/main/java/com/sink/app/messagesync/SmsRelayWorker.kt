@@ -48,7 +48,8 @@ class SmsRelayWorker @AssistedInject constructor(
                 body = msg.body,
                 smsTimestamp = dateFormat.format(Date(msg.smsTimestamp)),
                 simSubscriptionId = if (msg.subscriptionId >= 0) msg.subscriptionId else null,
-                simSlotIndex = if (msg.simSlotIndex >= 0) msg.simSlotIndex else null
+                simSlotIndex = if (msg.simSlotIndex >= 0) msg.simSlotIndex else null,
+                messageType = msg.messageType
             )
         }
 

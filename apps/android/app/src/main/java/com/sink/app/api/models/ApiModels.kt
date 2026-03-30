@@ -80,7 +80,9 @@ data class SmsItem(
     val body: String,
     val smsTimestamp: String,
     val simSubscriptionId: Int? = null,
-    val simSlotIndex: Int? = null
+    val simSlotIndex: Int? = null,
+    val messageType: String? = null,
+    val senderDisplayName: String? = null
 )
 
 data class RelaySmsRequest(
