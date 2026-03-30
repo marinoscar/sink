@@ -2,20 +2,24 @@ package com.sink.app.auth
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.OpenInBrowser
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sink.app.R
 
 @Composable
 fun DeviceAuthScreen(
@@ -36,11 +40,12 @@ fun DeviceAuthScreen(
             verticalArrangement = Arrangement.Center
         ) {
             // App Logo
-            Icon(
-                imageVector = Icons.Default.PhoneAndroid,
+            Image(
+                painter = painterResource(id = R.drawable.app_logo),
                 contentDescription = "Sink",
-                modifier = Modifier.size(80.dp),
-                tint = MaterialTheme.colorScheme.primary
+                modifier = Modifier
+                    .size(120.dp)
+                    .clip(RoundedCornerShape(16.dp))
             )
 
             Spacer(modifier = Modifier.height(24.dp))
