@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   ToggleButton,
@@ -7,7 +7,7 @@ import {
   Typography,
 } from '@mui/material';
 
-type DatePreset = 'today' | 'week' | 'month' | 'custom' | 'all';
+type DatePreset = 'all' | 'last7days' | 'today' | 'week' | 'month' | 'custom';
 
 interface MessageDateFilterProps {
   onDateChange: (dateFrom?: string, dateTo?: string) => void;
@@ -39,7 +39,7 @@ function toDateInputValue(isoString: string): string {
 }
 
 export function MessageDateFilter({ onDateChange }: MessageDateFilterProps) {
-  const [preset, setPreset] = useState<DatePreset>('all');
+  const [preset, setPreset] = useState<DatePreset>('last7days');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
 
@@ -51,6 +51,9 @@ export function MessageDateFilter({ onDateChange }: MessageDateFilterProps) {
 
     if (value === 'all') {
       onDateChange(undefined, undefined);
+    } else if (value === 'last7days') {
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      onDateChange(getStartOfDay(sevenDaysAgo), now.toISOString());
     } else if (value === 'today') {
       onDateChange(getStartOfDay(now), getEndOfDay(now));
     } else if (value === 'week') {
@@ -88,6 +91,13 @@ export function MessageDateFilter({ onDateChange }: MessageDateFilterProps) {
     }
   };
 
+  useEffect(() => {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    onDateChange(getStartOfDay(sevenDaysAgo), now.toISOString());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       <ToggleButtonGroup
@@ -99,6 +109,9 @@ export function MessageDateFilter({ onDateChange }: MessageDateFilterProps) {
       >
         <ToggleButton value="all" aria-label="all time">
           All
+        </ToggleButton>
+        <ToggleButton value="last7days" aria-label="last 7 days">
+          Last 7 Days
         </ToggleButton>
         <ToggleButton value="today" aria-label="today">
           Today
