@@ -187,7 +187,7 @@ fun MessageSyncScreen(
                         Text(
                             text = when {
                                 !permissionsGranted -> "Permissions not granted"
-                                state.registrationError != null -> state.registrationError
+                                state.registrationError != null -> state.registrationError!!
                                 state.deviceRegistered -> "SMS messages are being synced"
                                 else -> "Registering device..."
                             },
