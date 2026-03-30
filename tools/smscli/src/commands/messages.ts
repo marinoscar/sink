@@ -35,6 +35,8 @@ async function buildQueryParams(opts: Record<string, string | undefined>): Promi
   if (opts.page) params.page = Number(opts.page);
   if (opts.pageSize) params.pageSize = Number(opts.pageSize);
 
+  if (opts.type) params.messageType = opts.type;
+
   // --number resolves a phone number to a deviceSimId
   if (opts.number) {
     params.deviceSimId = await resolvePhoneNumber(opts.number);
@@ -75,6 +77,11 @@ function addFilterOptions(cmd: Command): Command {
       '--sim <uuid>',
       'Filter messages received on a specific SIM card by its UUID. ' +
       'Use "smscli devices list" to see SIM IDs. Prefer --number for a more user-friendly alternative.',
+    )
+    .option(
+      '--type <sms|rcs>',
+      'Filter messages by protocol type: "sms" for traditional SMS, "rcs" for Rich Communication Services ' +
+      '(captured via notification listener from Google Messages). If omitted, shows both SMS and RCS messages.',
     );
 }
 

@@ -99,6 +99,8 @@ export interface SmsMessage {
   receivedAt: string;
   messageHash: string;
   simSlotIndex: number | null;
+  messageType: string;
+  senderDisplayName: string | null;
   createdAt: string;
   device: MessageDevice;
   sim: MessageSim | null;
@@ -126,6 +128,7 @@ export interface MessageQueryParams {
   sender?: string;
   deviceId?: string;
   deviceSimId?: string;
+  messageType?: string;
 }
 
 // ---------------------------------------------------------------------------
