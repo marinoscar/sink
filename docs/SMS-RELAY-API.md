@@ -17,7 +17,7 @@ This document covers the server-side SMS relay feature: database schema, API end
 
 The SMS relay feature allows an Android companion app to forward incoming SMS messages to the Sink API. Messages are stored in PostgreSQL and exposed through a query API for use in the web UI.
 
-**Important limitation — RCS messages are not relayed.** The Android app only captures traditional SMS messages stored in the `content://sms` content provider. RCS (Rich Communication Services) messages are handled by Google Messages via Google's Jibe platform and are not stored in the standard SMS content provider. There is no public Android API to intercept RCS messages. On modern Samsung and Google devices, RCS is enabled by default; when both sender and receiver have RCS-capable apps, messages travel via RCS and the relay feature will not see them. See the Android App documentation for workarounds.
+**Both SMS and RCS messages are supported.** SMS messages are captured via the Android `BroadcastReceiver` and `ContentObserver` pipeline. RCS messages are captured via a `NotificationListenerService` that monitors notifications from Google Messages. Both message types are relayed through the same endpoint and stored in the same `sms_messages` table, distinguished by the `message_type` column.
 
 **Architecture:**
 
@@ -42,6 +42,7 @@ Web UI  <-- GET /api/device-text-messages (paginated, filterable)
 - A `messageHash` unique constraint provides idempotent relay — the Android app can safely retry without creating duplicates.
 - The module is split into two controllers: `RelayController` handles device/SIM management and message ingestion; `DeviceTextMessagesController` handles message querying.
 - The Android app uses two capture strategies simultaneously: a `BroadcastReceiver` for `SMS_RECEIVED` (works on Android below 16 and some OEMs) and a `ContentObserver` on `content://sms/inbox` (works on all versions, including Android 16 / SDK 36, where `SMS_RECEIVED` is not delivered to non-default SMS apps). Server-side deduplication via `messageHash` handles any overlap between the two strategies.
+- Messages are classified as either `sms` or `rcs` via the `messageType` field. SMS messages are captured via BroadcastReceiver and ContentObserver; RCS messages are captured via a NotificationListenerService that monitors Google Messages notifications. The relay endpoint accepts both types through the same `POST /api/device-text-messages/relay` endpoint.
 
 ---
 
@@ -109,12 +110,14 @@ Stores relayed SMS messages.
 | `received_at` | timestamptz | When the API received the relay request |
 | `message_hash` | varchar UNIQUE | SHA-256 hash for deduplication |
 | `sim_slot_index` | integer (nullable) | SIM slot index at time of receipt |
+| `message_type` | varchar | `"sms"` or `"rcs"` — protocol used to receive the message (default: `"sms"`) |
+| `sender_display_name` | varchar (nullable) | For RCS messages, the sender's display name from the notification |
 | `carrier_name` | varchar (nullable) | Reserved for future use |
 | `metadata` | jsonb (nullable) | Reserved for future extensible fields |
 | `created_at` | timestamptz | |
 
 Unique constraint: `message_hash` — enforces exactly-once storage.
-Indexes: `(user_id, sms_timestamp)`, `(user_id, sender)`, `device_id`, `received_at`.
+Indexes: `(user_id, sms_timestamp)`, `(user_id, sender)`, `device_id`, `received_at`, `message_type`.
 
 ### sms_attachments
 
@@ -332,6 +335,8 @@ Relays a batch of SMS messages from a registered device to the API. Duplicate me
 | `messages[].smsTimestamp` | ISO 8601 string | Yes | UTC datetime |
 | `messages[].simSubscriptionId` | integer | No | Android subscription ID; used to link message to a `DeviceSim` record |
 | `messages[].simSlotIndex` | integer | No | Physical SIM slot index |
+| `messages[].messageType` | string | No | `"sms"` or `"rcs"` (default: `"sms"`). Protocol that captured the message. |
+| `messages[].senderDisplayName` | string | No | max 100 chars; RCS sender display name from notification |
 
 **Response `201`:**
 
@@ -409,6 +414,7 @@ Lists SMS messages for the authenticated user with pagination and optional filte
 | `dateTo` | ISO 8601 string | — | Filter: `smsTimestamp <= dateTo` |
 | `sender` | string | — | Case-insensitive partial match on sender |
 | `deviceId` | UUID string | — | Filter by specific device |
+| `messageType` | string | — | Filter by message type: `"sms"` or `"rcs"` |
 
 **Example request:**
 
@@ -528,17 +534,20 @@ For each message in a relay request, `RelayService` computes:
 
 ```typescript
 const messageHash = createHash('sha256')
-  .update(`${dto.deviceId}:${msg.sender}:${msg.body}:${msg.smsTimestamp}`)
+  .update(`${dto.deviceId}:${messageType}:${msg.sender}:${msg.body}:${msg.smsTimestamp}`)
   .digest('hex');
 ```
 
-The input string is the concatenation of four fields separated by colons:
+The input string is the concatenation of five fields separated by colons:
 - `deviceId` — ensures the same SMS from two different devices produces different hashes
+- `messageType` — `"sms"` or `"rcs"`; defaults to `"sms"` when not provided
 - `sender` — originating address
 - `body` — full message text
 - `smsTimestamp` — ISO 8601 UTC string from the device
 
 The resulting hex string is stored in the `message_hash` column.
+
+The `messageType` component ensures that if the same content arrives via both SMS and RCS (e.g., a carrier that sends both), they are stored as separate records rather than colliding.
 
 ### Database Constraint
 

@@ -10,6 +10,8 @@ This guide covers the Sink companion Android app — its architecture, features,
 - [Getting Started](#getting-started)
 - [Authentication Flow](#authentication-flow)
 - [Message Sync Feature](#message-sync-feature)
+  - [SMS Capture](#sms-capture)
+  - [RCS Message Capture](#rcs-message-capture)
 - [Logging System](#logging-system)
 - [Adding New Features](#adding-new-features)
 - [Troubleshooting](#troubleshooting)
@@ -44,20 +46,9 @@ Minimum SDK: API 26 (Android 8.0). Target SDK: API 36.
 
 These limitations and requirements were confirmed during real-device testing on a Samsung Galaxy running Android 16 (SDK 36).
 
-### RCS Messages Are Not Captured
+### RCS Message Capture via NotificationListenerService
 
-The app only captures traditional SMS messages. **RCS (Rich Communication Services) messages are not captured.**
-
-RCS messages are handled by Google Messages via Google's Jibe platform and are not stored in the standard `content://sms` content provider. There is no public Android API to intercept RCS messages.
-
-On modern Samsung and Google phones, RCS is enabled by default. When both the sender and receiver have RCS-capable apps, the conversation upgrades to RCS automatically and bypasses SMS entirely. The app will not see these messages.
-
-**To ensure messages are captured as SMS:**
-
-- The sender must not have RCS enabled, or
-- The user must disable RCS on the device: Google Messages > Settings > RCS chats > Turn off.
-
-**Future consideration:** RCS interception would require a Notification Listener Service or Accessibility Service approach, neither of which uses the SMS content provider.
+**RCS message capture via NotificationListenerService.** Since Android does not provide a public API to intercept RCS messages (they are handled by Google Messages via Google's Jibe platform and are not stored in `content://sms`), the app captures RCS messages by listening to notifications from Google Messages using a `NotificationListenerService`. This requires the user to grant Notification Access in **Settings > Apps > Special app access > Notification access**. SMS messages continue to be captured via the existing `BroadcastReceiver` and `ContentObserver` pipeline — the RCS capture is purely additive.
 
 ### Android 16 (SDK 36) Does Not Deliver SMS Broadcasts
 
@@ -100,7 +91,9 @@ com.sink.app/
   messagesync/
     SmsReceiver.kt            # BroadcastReceiver: captures SMS_RECEIVED broadcasts
     SmsContentObserver.kt     # ContentObserver: watches content://sms/inbox directly
-    SmsListenerService.kt     # Foreground service: hosts both capture strategies
+    SmsListenerService.kt     # Foreground service: hosts both SMS capture strategies
+    RcsNotificationListener.kt  # NotificationListenerService: captures RCS from Google Messages notifications
+    PhoneNumberNormalizer.kt  # Converts sender strings to E.164 using libphonenumber
     SmsRelayWorker.kt         # WorkManager worker: reads outbox, calls relay API
     DeviceRegistrationManager.kt  # Registers device + syncs SIM cards on first login
     SimCardReader.kt          # Reads active SIM subscriptions via SubscriptionManager
@@ -156,20 +149,29 @@ WorkManager workers (`SmsRelayWorker`, `LogCleanupWorker`) use `@HiltWorker` / `
 
 Note: `@AndroidEntryPoint` on `BroadcastReceiver` is unreliable — Hilt injection can silently fail before `onReceive` runs. `SmsReceiver` and `SmsListenerService` therefore resolve dependencies manually using `EntryPointAccessors.fromApplication()` and the Room `getInstance()` singleton rather than field injection. See [Hilt and BroadcastReceiver](#hilt-and-broadcastreceiver) for details.
 
-### Data Flow: SMS Capture to API
+### Data Flow: SMS and RCS Capture to API
 
 ```
 Incoming SMS
     |
     +---> SmsReceiver (BroadcastReceiver, runtime-registered)
     |         works on Android < 16 and some OEMs
+    |         messageType = "sms"
     |
     +---> SmsContentObserver (ContentObserver, registered by SmsListenerService)
               watches content://sms/inbox
               tracks last processed SMS ID to detect new entries
               works on ALL Android versions including 16+
+              messageType = "sms"
 
-Both strategies write to:
+Incoming RCS (Google Messages notification)
+    |
+    +---> RcsNotificationListener (NotificationListenerService)
+              listens for notifications from com.google.android.apps.messaging
+              normalizes sender to E.164 via PhoneNumberNormalizer
+              messageType = "rcs", senderDisplayName = notification title
+
+All three strategies write to:
     SmsOutboxDao.insert()  [Room: sms_outbox table, status = PENDING]
         |
         v
@@ -180,6 +182,7 @@ Both strategies write to:
     SmsRelayWorker.doWork()
         |  reads up to 100 PENDING records
         |  formats timestamps as ISO 8601 UTC
+        |  includes messageType and senderDisplayName fields
         |  calls POST /api/device-text-messages/relay
         |  on success: marks records as SYNCED
         |  on failure: returns Result.retry() (triggers exponential backoff)
@@ -187,7 +190,7 @@ Both strategies write to:
     API: stored to sms_messages table (deduplication via messageHash)
 ```
 
-Server-side deduplication via `messageHash` prevents double-processing if both strategies fire for the same message.
+Server-side deduplication via `messageHash` (which includes `messageType`) prevents double-processing regardless of which capture strategy fires. SMS and RCS messages with identical content are stored as separate records because `messageType` is part of the hash input.
 
 ---
 
@@ -235,6 +238,7 @@ The app declares these permissions in `AndroidManifest.xml`:
 | `POST_NOTIFICATIONS` | Show foreground service notification on API 33+ | Yes (dangerous permission) |
 | `FOREGROUND_SERVICE` | Run SmsListenerService as a foreground service | No |
 | `FOREGROUND_SERVICE_SPECIAL_USE` | Required for foreground service type `specialUse` on API 34+ | No |
+| Notification Access (special) | Required by `RcsNotificationListener` to receive notification callbacks from Google Messages | No (granted via Settings > Apps > Special app access > Notification access) |
 
 The `SmsReceiver` is registered with `android:permission="android.permission.BROADCAST_SMS"` to prevent third-party apps from sending fake SMS broadcasts to it.
 
@@ -394,11 +398,50 @@ On failure (network error, API error), `doWork()` returns `Result.retry()`, whic
 
 ### Deduplication
 
-The server computes a `messageHash` (`SHA-256` of `deviceId:sender:body:smsTimestamp`) and enforces a unique constraint on it. The relay endpoint uses `createMany` with `skipDuplicates: true`. This means:
+The server computes a `messageHash` (`SHA-256` of `deviceId:messageType:sender:body:smsTimestamp`) and enforces a unique constraint on it. The relay endpoint uses `createMany` with `skipDuplicates: true`. This means:
 
 - If the Android app retries after a network timeout (message was received by the server but the response was lost), the duplicate is silently skipped.
 - The API response includes `{ stored: N, duplicates: M }` so the app can log accurate counts.
 - If both `SmsReceiver` and `SmsContentObserver` fire for the same message, the second relay attempt produces `duplicates: 1` rather than a duplicate record.
+
+### RCS Message Capture
+
+RCS messages are captured by `RcsNotificationListener`, a `NotificationListenerService` that monitors incoming notifications from the Google Messages package (`com.google.android.apps.messaging`).
+
+#### How RcsNotificationListener Works
+
+1. When a new notification arrives from Google Messages, `onNotificationPosted` is called with the `StatusBarNotification`.
+2. The listener checks that the notification has `CATEGORY_MESSAGE` and a non-empty text body. Group summary notifications and notifications without message text are ignored.
+3. The sender address is extracted from the notification title, then normalized to E.164 format using `PhoneNumberNormalizer` (backed by `libphonenumber`). If the title is not a phone number (e.g., a group chat name or a non-numeric sender), the raw title string is used as-is.
+4. The notification text is used as the message body. Android may truncate long notification text — see Limitations below.
+5. A `SmsOutboxEntity` is inserted into Room with `messageType = "rcs"` and `senderDisplayName` set to the notification title (before normalization). `WorkManager.enqueueUniqueWork("sms_relay", REPLACE, ...)` is then triggered.
+
+The service is declared in `AndroidManifest.xml` with `android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"`. It is bound only by the system and cannot be triggered by third-party apps.
+
+#### Three-Layer Deduplication Strategy
+
+RCS capture relies on three independent deduplication layers to prevent duplicate records:
+
+1. **Phone number normalization.** `PhoneNumberNormalizer` converts sender strings to E.164 format before the outbox entity is written. This ensures that `+1 (555) 987-6543`, `15559876543`, and `+15559876543` all produce the same `sender` value, preventing duplicates caused by formatting variation.
+
+2. **Notification ID tracking.** The listener records the notification ID and key for each processed notification. If the same notification is reposted (e.g., updated with a badge count change) without a new message body, it is skipped. This is tracked in memory during the service lifetime.
+
+3. **Server-side hash deduplication.** `RelayService` computes a SHA-256 hash of `deviceId:messageType:sender:body:smsTimestamp` for every relayed message. The `message_hash` unique constraint on `sms_messages` causes `INSERT ... ON CONFLICT DO NOTHING`, silently skipping any message the server has already stored. The `messageType` field is included in the hash so that if the same message content arrives via both SMS and RCS (uncommon but possible with some carriers), both records are stored independently.
+
+#### Notification Access Permission
+
+The `NotificationListenerService` requires a special, non-dangerous permission that must be granted through the system settings UI — it cannot be requested via the standard runtime permission dialog.
+
+To grant access: **Settings > Apps > Special app access > Notification access > Sink > Allow**.
+
+The `MessageSyncScreen` detects whether notification access has been granted using `NotificationManagerCompat.getEnabledListenerPackages()`. If it is not granted, the screen shows a prompt with an **"Open Notification Settings"** button that deep-links directly to the system Notification Access settings page.
+
+#### Limitations
+
+- **Media attachments are not captured.** Notifications contain only text. Images, videos, and other RCS media are not forwarded to the relay.
+- **Text may be truncated.** Android limits notification text length. Very long RCS messages may be truncated at the notification layer before the listener sees them. The truncated text is what gets stored.
+- **Requires Google Messages.** The listener only processes notifications from `com.google.android.apps.messaging`. Devices using Samsung Messages, Signal, or other messaging apps as the default RCS client will not have their RCS messages captured.
+- **Group chat sender resolution.** In group RCS conversations, the notification title may be the group name rather than the sender's phone number. In this case, `senderDisplayName` preserves the original title and `sender` is set to the group name string (not an E.164 number).
 
 ### Sender Blocklist
 
@@ -677,7 +720,7 @@ For dangerous permissions, also add runtime permission request logic in your scr
 
 ### No messages are being captured
 
-**Check 1 — RCS is active.** On modern Samsung and Google devices, conversations between two RCS-capable users travel via RCS, not SMS. The app cannot capture RCS messages. To verify: send a test SMS from a device that does not have RCS (e.g., a basic phone or a carrier that does not support RCS). If that message appears but messages from an iPhone or another Android do not, RCS is the cause. Disable RCS in Google Messages: Settings > RCS chats > Turn off.
+**Check 1 — Notification access not granted (RCS).** If RCS messages are not appearing but SMS messages are, the most likely cause is that Notification Access has not been granted to the app. Navigate to **Settings > Apps > Special app access > Notification access** and enable access for Sink. The `MessageSyncScreen` displays a prompt if notification access is missing. Note: this permission is not required for SMS capture — only for RCS.
 
 **Check 2 — Permissions not granted.** Open the app and navigate to the Message Sync screen. If a permissions prompt or error banner is visible, tap "Grant Permissions". If the screen shows permissions are granted but messages still do not arrive, check that `READ_SMS` and `RECEIVE_SMS` are both listed as "Allowed" under Settings > Apps > Sink > Permissions.
 
@@ -876,6 +919,8 @@ Request:
 - `body`: max 10,000 characters
 - `smsTimestamp`: ISO 8601 UTC datetime string
 - `simSubscriptionId` / `simSlotIndex`: optional; omit on single-SIM devices
+- `messageType`: optional; `"sms"` or `"rcs"` (default: `"sms"`)
+- `senderDisplayName`: optional; max 100 characters; RCS sender display name from the notification title
 
 Response `201`:
 ```json
