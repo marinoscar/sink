@@ -131,19 +131,42 @@ function Find-Keytool {
         if (Test-Path $candidate) { return $candidate }
     }
 
-    # Try Android Studio bundled JBR
-    if ($env:ANDROID_HOME) {
-        $jbrPath = Join-Path (Split-Path -Parent $env:ANDROID_HOME) "jbr\bin\keytool.exe"
-        if (Test-Path $jbrPath) { return $jbrPath }
+    # Try Android Studio bundled JBR (JetBrains Runtime)
+    # Android Studio bundles its own JDK at <install-dir>/jbr/bin/
+    $studioSearchPaths = @(
+        # Standard install locations
+        "$env:ProgramFiles\Android\Android Studio\jbr\bin\keytool.exe",
+        "${env:ProgramFiles(x86)}\Android\Android Studio\jbr\bin\keytool.exe",
+        # JetBrains Toolbox managed installs
+        "$env:LOCALAPPDATA\JetBrains\Toolbox\apps\android-studio\jbr\bin\keytool.exe",
+        # User-level install
+        "$env:LOCALAPPDATA\Programs\Android Studio\jbr\bin\keytool.exe",
+        # Older Android Studio versions used "jre" instead of "jbr"
+        "$env:ProgramFiles\Android\Android Studio\jre\bin\keytool.exe"
+    )
+
+    foreach ($p in $studioSearchPaths) {
+        if (Test-Path $p) { return $p }
     }
 
-    # Common Windows paths
-    $commonPaths = @(
-        "$env:ProgramFiles\Android\Android Studio\jbr\bin\keytool.exe",
-        "$env:LOCALAPPDATA\Android\Sdk\..\jbr\bin\keytool.exe"
-    )
-    foreach ($p in $commonPaths) {
-        if (Test-Path $p) { return $p }
+    # Try ANDROID_HOME — keytool is NOT in the SDK, but the SDK location
+    # hints at where Android Studio might be installed
+    if ($env:ANDROID_HOME) {
+        # ANDROID_HOME is typically <user>\AppData\Local\Android\Sdk
+        # Android Studio JBR is at <ProgramFiles>\Android\Android Studio\jbr
+        $sdkParent = Split-Path -Parent $env:ANDROID_HOME
+        $candidate = Join-Path $sdkParent "Android Studio\jbr\bin\keytool.exe"
+        if (Test-Path $candidate) { return $candidate }
+    }
+
+    # Last resort: search Program Files for any Android Studio installation
+    $searchRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)})
+    foreach ($root in $searchRoots) {
+        if (-not $root) { continue }
+        $found = Get-ChildItem -Path $root -Filter "keytool.exe" -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -like "*Android Studio*jbr*" -or $_.FullName -like "*Android Studio*jre*" } |
+            Select-Object -First 1
+        if ($found) { return $found.FullName }
     }
 
     return $null
@@ -165,7 +188,12 @@ if ($GenerateKeystore) {
     $keytool = Find-Keytool
     if (-not $keytool) {
         Write-Err "ERROR: keytool not found."
-        Write-Err "Install JDK or set JAVA_HOME / ANDROID_HOME environment variable."
+        Write-Err ""
+        Write-Err "keytool is bundled with Android Studio's JDK. Try one of:"
+        Write-Err "  1. Set JAVA_HOME to Android Studio's JBR:"
+        Write-Err "     `$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'"
+        Write-Err "  2. Or find it manually and add to PATH:"
+        Write-Err "     dir 'C:\Program Files\Android\Android Studio' -Recurse -Filter keytool.exe"
         exit 1
     }
     Write-Info "Using keytool: $keytool"
