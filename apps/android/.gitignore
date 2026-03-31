@@ -9,3 +9,6 @@
 .cxx
 local.properties
 /app/build
+
+# Release keystore and credentials
+keystore/
