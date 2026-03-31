@@ -23,6 +23,7 @@ const CalendarSyncPage = lazy(() => import('./pages/CalendarSyncPage'));
 const CalendarImportPage = lazy(() => import('./pages/CalendarImportPage'));
 const DevicesPage = lazy(() => import('./pages/DevicesPage'));
 const MessagesPage = lazy(() => import('./pages/MessagesPage'));
+const GetAppPage = lazy(() => import('./pages/GetAppPage'));
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -41,6 +42,7 @@ function AppRoutes() {
             {/* Public routes */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
+            <Route path="/getapp" element={<GetAppPage />} />
 
             {/* Test login (development only) */}
             {!import.meta.env.PROD && TestLoginPage && (
