@@ -1,6 +1,5 @@
 import { Command } from 'commander';
-import { getMessages, resolvePhoneNumber } from '../lib/api-client.js';
-import { extractOtp } from '../lib/otp-parser.js';
+import { getMessages, resolvePhoneNumber, extractOtpViaApi } from '../lib/api-client.js';
 import { formatOtpResult } from '../lib/formatters.js';
 import { OutputManager } from '../utils/output.js';
 import * as out from '../utils/output.js';
@@ -109,19 +108,21 @@ export function registerOtpCommands(program: Command): void {
               if (seenIds.has(msg.id)) continue;
               seenIds.add(msg.id);
 
-              const code = extractOtp(msg.body);
-              if (code) {
+              const extraction = await extractOtpViaApi(msg.body);
+              if (extraction.code) {
                 output.result(
                   {
-                    code,
+                    code: extraction.code,
+                    confidence: extraction.confidence,
+                    reason: extraction.reason,
                     sender: msg.sender,
                     body: msg.body,
                     smsTimestamp: msg.smsTimestamp,
                     receivedAt: msg.receivedAt,
                     messageId: msg.id,
                   },
-                  () => formatOtpResult(code, msg),
-                  () => console.log(code),
+                  () => formatOtpResult(extraction.code!, msg),
+                  () => console.log(extraction.code),
                 );
                 process.exit(0);
               }
@@ -153,9 +154,8 @@ export function registerOtpCommands(program: Command): void {
   otp
     .command('extract')
     .description(
-      'Extract an OTP code from arbitrary text. Pure offline utility — does not call the API. ' +
-      'Useful for testing OTP extraction patterns or processing message text from other sources. ' +
-      'Reads from --message flag or stdin (for piping). ' +
+      'Extract an OTP code from arbitrary text using LLM-powered analysis via the API. ' +
+      'Reads from --message flag or stdin (for piping). Requires API connectivity. ' +
       'Example: echo "Your code is 123456" | smscli otp extract',
     )
     .option(
@@ -180,19 +180,27 @@ export function registerOtpCommands(program: Command): void {
         text = await readStdin();
       }
 
-      const code = extractOtp(text);
+      try {
+        const extraction = await extractOtpViaApi(text);
 
-      if (code) {
-        output.result(
-          { code, source: text },
-          () => {
-            out.blank();
-            console.log(`  OTP Code: ${code}`);
-          },
-          () => console.log(code),
-        );
-      } else {
-        output.fail('No OTP code found in the provided text.', 'NO_OTP_FOUND');
+        if (extraction.code) {
+          output.result(
+            { code: extraction.code, confidence: extraction.confidence, reason: extraction.reason, source: text },
+            () => {
+              out.blank();
+              console.log(`  OTP Code: ${extraction.code}`);
+            },
+            () => console.log(extraction.code),
+          );
+        } else {
+          output.fail(
+            extraction.reason || 'No OTP code found in the provided text.',
+            'NO_OTP_FOUND',
+          );
+          process.exit(1);
+        }
+      } catch (err) {
+        output.fail((err as Error).message, 'OTP_EXTRACT_FAILED');
         process.exit(1);
       }
     });
@@ -243,19 +251,21 @@ export function registerOtpCommands(program: Command): void {
         const result = await getMessages(params);
 
         for (const msg of result.items) {
-          const code = extractOtp(msg.body);
-          if (code) {
+          const extraction = await extractOtpViaApi(msg.body);
+          if (extraction.code) {
             output.result(
               {
-                code,
+                code: extraction.code,
+                confidence: extraction.confidence,
+                reason: extraction.reason,
                 sender: msg.sender,
                 body: msg.body,
                 smsTimestamp: msg.smsTimestamp,
                 receivedAt: msg.receivedAt,
                 messageId: msg.id,
               },
-              () => formatOtpResult(code, msg),
-              () => console.log(code),
+              () => formatOtpResult(extraction.code!, msg),
+              () => console.log(extraction.code),
             );
             return;
           }
