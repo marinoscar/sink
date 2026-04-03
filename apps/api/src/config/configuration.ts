@@ -84,5 +84,12 @@ export default () => {
   },
 
   logLevel: process.env.LOG_LEVEL || 'info',
+
+  // LLM (OpenAI-compatible)
+  llm: {
+    apiKey: process.env.LLM_API_KEY || '',
+    baseUrl: process.env.LLM_BASE_URL || 'https://api.openai.com/v1',
+    model: process.env.LLM_MODEL || 'gpt-4o-mini',
+  },
   };
 };
