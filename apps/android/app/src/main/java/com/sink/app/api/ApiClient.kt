@@ -19,11 +19,15 @@ object ApiClient {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(authInterceptor: AuthInterceptor): OkHttpClient {
+    fun provideOkHttpClient(
+        dynamicBaseUrlInterceptor: DynamicBaseUrlInterceptor,
+        authInterceptor: AuthInterceptor
+    ): OkHttpClient {
         val builder = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(dynamicBaseUrlInterceptor)
             .addInterceptor(authInterceptor)
 
         if (BuildConfig.DEBUG) {
@@ -38,8 +42,9 @@ object ApiClient {
     @Provides
     @Singleton
     fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
+        // Placeholder base URL — DynamicBaseUrlInterceptor rewrites all requests
         return Retrofit.Builder()
-            .baseUrl(BuildConfig.API_BASE_URL + "/")
+            .baseUrl("http://localhost/")
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

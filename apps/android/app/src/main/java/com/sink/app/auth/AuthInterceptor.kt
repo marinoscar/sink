@@ -1,6 +1,6 @@
 package com.sink.app.auth
 
-import com.sink.app.BuildConfig
+import com.sink.app.api.EnvironmentManager
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -14,7 +14,8 @@ import javax.inject.Singleton
 
 @Singleton
 class AuthInterceptor @Inject constructor(
-    private val tokenManager: TokenManager
+    private val tokenManager: TokenManager,
+    private val environmentManager: EnvironmentManager
 ) : Interceptor {
 
     // Separate client for refresh calls to avoid interceptor recursion
@@ -63,7 +64,7 @@ class AuthInterceptor @Inject constructor(
 
         return try {
             val refreshRequest = Request.Builder()
-                .url(BuildConfig.API_BASE_URL + "/auth/refresh")
+                .url(environmentManager.getCurrentBaseUrl() + "/auth/refresh")
                 .post("{}".toRequestBody("application/json".toMediaType()))
                 .header("Cookie", "refresh_token=$refreshTokenValue")
                 .build()
