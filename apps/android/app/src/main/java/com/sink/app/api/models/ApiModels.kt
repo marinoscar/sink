@@ -79,6 +79,7 @@ data class SmsItem(
     val sender: String,
     val body: String,
     val smsTimestamp: String,
+    val smsTimezoneOffset: String? = null,
     val simSubscriptionId: Int? = null,
     val simSlotIndex: Int? = null,
     val messageType: String? = null,

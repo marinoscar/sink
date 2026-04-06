@@ -49,6 +49,14 @@ class SmsRelayWorker @AssistedInject constructor(
             timeZone = TimeZone.getTimeZone("UTC")
         }
 
+        // Compute device timezone offset in ±HH:MM format
+        val deviceTz = TimeZone.getDefault()
+        val offsetMs = deviceTz.rawOffset + deviceTz.dstSavings
+        val offsetHours = Math.abs(offsetMs) / 3600000
+        val offsetMinutes = (Math.abs(offsetMs) % 3600000) / 60000
+        val timezoneOffset = String.format(Locale.US, "%s%02d:%02d",
+            if (offsetMs >= 0) "+" else "-", offsetHours, offsetMinutes)
+
         val smsItems = pending.mapIndexed { index, msg ->
             logRepository.debug(
                 LogFeature.MESSAGE_SYNC,
@@ -59,6 +67,7 @@ class SmsRelayWorker @AssistedInject constructor(
                 sender = msg.sender,
                 body = msg.body,
                 smsTimestamp = dateFormat.format(Date(msg.smsTimestamp)),
+                smsTimezoneOffset = timezoneOffset,
                 simSubscriptionId = if (msg.subscriptionId >= 0) msg.subscriptionId else null,
                 simSlotIndex = if (msg.simSlotIndex >= 0) msg.simSlotIndex else null,
                 messageType = msg.messageType
