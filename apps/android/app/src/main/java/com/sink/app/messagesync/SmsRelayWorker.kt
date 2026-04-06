@@ -12,6 +12,7 @@ import com.sink.app.logging.LogFeature
 import com.sink.app.logging.LogRepository
 import com.sink.app.messagesync.db.OutboxStatus
 import com.sink.app.messagesync.db.SmsOutboxDao
+import com.sink.app.preferences.AppPreferences
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.text.SimpleDateFormat
@@ -24,10 +25,16 @@ class SmsRelayWorker @AssistedInject constructor(
     private val apiService: ApiService,
     private val tokenManager: TokenManager,
     private val smsOutboxDao: SmsOutboxDao,
-    private val logRepository: LogRepository
+    private val logRepository: LogRepository,
+    private val appPreferences: AppPreferences
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        if (appPreferences.isRelayPaused()) {
+            logRepository.debug(LogFeature.MESSAGE_SYNC, "Relay is paused, skipping")
+            return Result.success()
+        }
+
         val deviceId = tokenManager.getDeviceId() ?: run {
             logRepository.error(LogFeature.MESSAGE_SYNC, "No device ID found, cannot relay")
             return Result.failure()

@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.ContactPhone
+import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -27,11 +29,78 @@ fun SendersScreen(
     viewModel: SendersViewModel = hiltViewModel()
 ) {
     val senders by viewModel.senders.collectAsState()
+    val relayPaused by viewModel.relayPaused.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("Senders") }
         )
+
+        // Relay pause/resume toggle
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (relayPaused) {
+                    MaterialTheme.colorScheme.errorContainer
+                } else {
+                    MaterialTheme.colorScheme.primaryContainer
+                }
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (relayPaused) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(32.dp),
+                    tint = if (relayPaused) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (relayPaused) "Relay Paused" else "Relay Active",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (relayPaused) {
+                            MaterialTheme.colorScheme.onErrorContainer
+                        } else {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        }
+                    )
+                    Text(
+                        text = if (relayPaused) {
+                            "Messages are queued but not sent"
+                        } else {
+                            "Messages are being relayed to server"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (relayPaused) {
+                            MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f)
+                        } else {
+                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        }
+                    )
+                }
+                Switch(
+                    checked = !relayPaused,
+                    onCheckedChange = { viewModel.toggleRelayPaused() },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = MaterialTheme.colorScheme.primary,
+                        uncheckedThumbColor = MaterialTheme.colorScheme.error,
+                        uncheckedTrackColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                )
+            }
+        }
 
         if (senders.isEmpty()) {
             Box(

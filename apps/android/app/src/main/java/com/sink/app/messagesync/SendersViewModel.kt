@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.sink.app.messagesync.db.BlockedSenderDao
 import com.sink.app.messagesync.db.BlockedSenderEntity
 import com.sink.app.messagesync.db.KnownSenderDao
+import com.sink.app.preferences.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,8 +24,12 @@ data class SenderItem(
 @HiltViewModel
 class SendersViewModel @Inject constructor(
     private val knownSenderDao: KnownSenderDao,
-    private val blockedSenderDao: BlockedSenderDao
+    private val blockedSenderDao: BlockedSenderDao,
+    private val appPreferences: AppPreferences
 ) : ViewModel() {
+
+    val relayPaused: StateFlow<Boolean> = appPreferences.relayPaused
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val senders: StateFlow<List<SenderItem>> = combine(
         knownSenderDao.getAllSorted(),
@@ -40,6 +45,13 @@ class SendersViewModel @Inject constructor(
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun toggleRelayPaused() {
+        viewModelScope.launch {
+            val current = appPreferences.isRelayPaused()
+            appPreferences.setRelayPaused(!current)
+        }
+    }
 
     fun blockSender(sender: String) {
         viewModelScope.launch {
