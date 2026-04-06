@@ -23,7 +23,6 @@ data class SettingsState(
     val serverUrl: String = BuildConfig.API_BASE_URL,
     val appVersion: String = BuildConfig.VERSION_NAME,
     val deviceId: String? = null,
-    val isResetting: Boolean = false,
     val currentEnvironment: Environment = Environment.PROD
 )
 
@@ -64,21 +63,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun resetAppData() {
+    fun logout() {
         viewModelScope.launch {
-            _state.update { it.copy(isResetting = true) }
             withContext(Dispatchers.IO) {
                 smsOutboxDatabase.clearAllTables()
                 logDatabase.clearAllTables()
                 appPreferences.clearAll()
             }
-            tokenManager.clearTokens()
-        }
-    }
-
-    fun logout() {
-        viewModelScope.launch {
-            appPreferences.clearDeviceRegistration()
             tokenManager.clearTokens()
         }
     }
