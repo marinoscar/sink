@@ -473,6 +473,7 @@ model SmsMessage {
   body         String   @db.Text
   smsTimestamp       DateTime @map("sms_timestamp") @db.Timestamptz
   smsTimezoneOffset  String?  @map("sms_timezone_offset") @db.VarChar(6)
+  isOtp              Boolean  @default(false) @map("is_otp")
   receivedAt         DateTime @default(now()) @map("received_at") @db.Timestamptz
   messageHash  String   @unique @map("message_hash")
   simSlotIndex       Int?     @map("sim_slot_index")
@@ -490,6 +491,7 @@ model SmsMessage {
 
   @@index([userId, smsTimestamp])
   @@index([userId, sender])
+  @@index([userId, isOtp])
   @@index([deviceId])
   @@index([receivedAt])
   @@index([messageType])
