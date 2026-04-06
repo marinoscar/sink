@@ -5,9 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sink.app.BuildConfig
 import com.sink.app.api.ApiService
+import com.sink.app.api.Environment
+import com.sink.app.api.EnvironmentManager
 import com.sink.app.api.models.*
 import com.sink.app.logging.LogRepository
 import com.sink.app.logging.LogFeature
+import com.sink.app.preferences.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -21,6 +24,7 @@ data class DeviceAuthState(
     val verificationUriComplete: String? = null,
     val error: String? = null,
     val isAuthenticated: Boolean = false,
+    val environmentSelected: Boolean = false,
     val pollInterval: Long = 5000L
 )
 
@@ -28,14 +32,26 @@ data class DeviceAuthState(
 class DeviceAuthViewModel @Inject constructor(
     private val apiService: ApiService,
     private val tokenManager: TokenManager,
-    private val logRepository: LogRepository
+    private val logRepository: LogRepository,
+    private val appPreferences: AppPreferences,
+    private val environmentManager: EnvironmentManager
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DeviceAuthState())
     val state: StateFlow<DeviceAuthState> = _state.asStateFlow()
 
     init {
+        checkEnvironmentSelected()
         checkExistingAuth()
+    }
+
+    private fun checkEnvironmentSelected() {
+        viewModelScope.launch {
+            val env = appPreferences.getSelectedEnvironment()
+            if (env != null) {
+                _state.update { it.copy(environmentSelected = true) }
+            }
+        }
     }
 
     private fun checkExistingAuth() {
@@ -43,8 +59,30 @@ class DeviceAuthViewModel @Inject constructor(
             tokenManager.isLoggedIn.collect { loggedIn ->
                 if (loggedIn) {
                     _state.update { it.copy(isAuthenticated = true) }
+                } else {
+                    // Re-check environment selection (may have been cleared by logout)
+                    val envSelected = appPreferences.getSelectedEnvironment() != null
+                    _state.update {
+                        it.copy(
+                            isAuthenticated = false,
+                            environmentSelected = envSelected,
+                            isLoading = false,
+                            userCode = null,
+                            verificationUri = null,
+                            verificationUriComplete = null,
+                            error = null
+                        )
+                    }
                 }
             }
+        }
+    }
+
+    fun selectEnvironment(env: Environment) {
+        viewModelScope.launch {
+            environmentManager.switchEnvironment(env)
+            _state.update { it.copy(environmentSelected = true) }
+            logRepository.info(LogFeature.DEVICE_AUTH, "Environment selected: ${env.label}")
         }
     }
 
@@ -153,4 +191,5 @@ class DeviceAuthViewModel @Inject constructor(
             logRepository.info(LogFeature.DEVICE_AUTH, "User logged out")
         }
     }
+
 }
