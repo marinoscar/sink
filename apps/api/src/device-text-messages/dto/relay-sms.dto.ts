@@ -9,6 +9,7 @@ const smsItemSchema = z.object({
   simSlotIndex: z.number().int().optional(),
   messageType: z.enum(['sms', 'rcs']).default('sms').optional(),
   senderDisplayName: z.string().max(100).optional(),
+  smsTimezoneOffset: z.string().regex(/^[+-]\d{2}:\d{2}$/).optional(),
 });
 
 export const relaySmsSchema = z.object({

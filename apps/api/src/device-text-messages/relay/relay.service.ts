@@ -128,6 +128,7 @@ export class RelayService {
       simSlotIndex: number | null;
       messageType: string;
       senderDisplayName: string | null;
+      smsTimezoneOffset: string | null;
     }> = [];
 
     for (const msg of dto.messages) {
@@ -162,6 +163,7 @@ export class RelayService {
         simSlotIndex: messageType === 'sms' ? (msg.simSlotIndex ?? null) : null,
         messageType,
         senderDisplayName: msg.senderDisplayName ?? null,
+        smsTimezoneOffset: msg.smsTimezoneOffset ?? null,
       });
     }
 
