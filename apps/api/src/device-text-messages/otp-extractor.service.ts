@@ -34,7 +34,7 @@ Examples:
 @Injectable()
 export class OtpExtractorService {
   private readonly logger = new Logger(OtpExtractorService.name);
-  private readonly client: OpenAI;
+  private readonly client: OpenAI | null;
   private readonly model: string;
 
   constructor(private readonly configService: ConfigService) {
@@ -42,13 +42,26 @@ export class OtpExtractorService {
     const baseURL = this.configService.get<string>('llm.baseUrl');
     this.model = this.configService.get<string>('llm.model') || 'gpt-4o-mini';
 
-    this.client = new OpenAI({
-      apiKey: apiKey || undefined,
-      baseURL: baseURL || undefined,
-    });
+    if (apiKey) {
+      this.client = new OpenAI({
+        apiKey,
+        baseURL: baseURL || undefined,
+      });
+    } else {
+      this.client = null;
+      this.logger.warn('LLM API key not configured — OTP extraction disabled');
+    }
+  }
+
+  isAvailable(): boolean {
+    return this.client !== null;
   }
 
   async extractOtp(messageBody: string): Promise<OtpExtractionResult> {
+    if (!this.client) {
+      return { code: null, confidence: 'low', reason: 'OTP extraction not configured (missing LLM API key)' };
+    }
+
     try {
       const response = await this.client.chat.completions.create({
         model: this.model,
