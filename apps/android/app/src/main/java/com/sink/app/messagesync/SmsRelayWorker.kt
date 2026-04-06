@@ -42,7 +42,12 @@ class SmsRelayWorker @AssistedInject constructor(
             timeZone = TimeZone.getTimeZone("UTC")
         }
 
-        val smsItems = pending.map { msg ->
+        val smsItems = pending.mapIndexed { index, msg ->
+            logRepository.debug(
+                LogFeature.MESSAGE_SYNC,
+                "Relaying message ${index + 1}/${pending.size}: sender=${msg.sender.take(6)}..., " +
+                        "type=${msg.messageType}, chars=${msg.body.length}"
+            )
             SmsItem(
                 sender = msg.sender,
                 body = msg.body,
@@ -58,11 +63,13 @@ class SmsRelayWorker @AssistedInject constructor(
             val result = response.data
 
             // Mark all as synced
-            smsOutboxDao.updateStatus(pending.map { it.id }, OutboxStatus.SYNCED.name)
+            val ids = pending.map { it.id }
+            smsOutboxDao.updateStatus(ids, OutboxStatus.SYNCED.name)
 
             logRepository.info(
                 LogFeature.MESSAGE_SYNC,
-                "Relay complete: ${result.stored} stored, ${result.duplicates} duplicates"
+                "Relay complete: ${result.stored} stored, ${result.duplicates} duplicates " +
+                        "(${pending.size} messages, IDs: ${ids.joinToString(",")})"
             )
             Result.success()
         } catch (e: Exception) {
