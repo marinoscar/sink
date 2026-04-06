@@ -27,6 +27,7 @@ export class DeviceTextMessagesController {
   @ApiQuery({ name: 'sender', required: false, type: String })
   @ApiQuery({ name: 'deviceId', required: false, type: String, format: 'uuid' })
   @ApiQuery({ name: 'deviceSimId', required: false, type: String, format: 'uuid', description: 'Filter by SIM card ID' })
+  @ApiQuery({ name: 'isOtp', required: false, type: Boolean, description: 'Filter for OTP messages only' })
   @ApiResponse({ status: 200, description: 'Paginated list of SMS messages' })
   async listMessages(
     @CurrentUser('id') userId: string,
