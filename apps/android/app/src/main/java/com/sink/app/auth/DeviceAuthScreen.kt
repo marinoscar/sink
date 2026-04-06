@@ -3,10 +3,13 @@ package com.sink.app.auth
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sink.app.R
+import com.sink.app.api.Environment
 
 @Composable
 fun DeviceAuthScreen(
@@ -27,6 +31,11 @@ fun DeviceAuthScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+
+    if (!state.environmentSelected) {
+        EnvironmentPickerScreen(onSelect = { viewModel.selectEnvironment(it) })
+        return
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -171,6 +180,110 @@ fun DeviceAuthScreen(
 
                 TextButton(onClick = { viewModel.requestDeviceCode() }) {
                     Text("Try Again")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EnvironmentPickerScreen(onSelect: (Environment) -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.app_logo),
+                contentDescription = "Sink",
+                modifier = Modifier
+                    .size(120.dp)
+                    .clip(RoundedCornerShape(16.dp))
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Sink",
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Select your environment",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            OutlinedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(Environment.DEV) }
+            ) {
+                Row(
+                    modifier = Modifier.padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Science,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            text = "Development",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = Environment.DEV.baseUrl,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(Environment.PROD) }
+            ) {
+                Row(
+                    modifier = Modifier.padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Cloud,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            text = "Production",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = Environment.PROD.baseUrl,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
