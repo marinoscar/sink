@@ -17,6 +17,7 @@ fun SettingsScreen(
 ) {
     val state by viewModel.state.collectAsState()
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var showResetDialog by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -104,6 +105,27 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.weight(1f))
 
+            // Reset App Data
+            OutlinedButton(
+                onClick = { showResetDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !state.isResetting,
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                if (state.isResetting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(Icons.Default.DeleteForever, contentDescription = null)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (state.isResetting) "Resetting..." else "Reset App Data")
+            }
+
             // Logout
             Button(
                 onClick = { showLogoutDialog = true },
@@ -117,6 +139,23 @@ fun SettingsScreen(
                 Text("Logout")
             }
         }
+    }
+
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = { Text("Reset App Data") },
+            text = { Text("This will delete all local messages, logs, and settings, and sign you out. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.resetAppData()
+                    showResetDialog = false
+                }) { Text("Reset", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 
     if (showLogoutDialog) {
