@@ -1,75 +1,76 @@
 #!/usr/bin/env bash
+# =============================================================================
 #
-# install.sh — Install or update smscli on Linux (Ubuntu-targeted)
+#  smscli installer
 #
-# This script:
-#   1. Checks prerequisites (Node.js >= 18, npm)
-#   2. Resolves the smscli source directory (where this script lives)
-#   3. Installs npm dependencies
-#   4. Builds TypeScript
-#   5. Creates a symlink at /usr/local/bin/smscli (or updates it if it exists)
-#   6. Verifies the installation
+#  Install:    curl -fsSL https://raw.githubusercontent.com/marinoscar/sink/main/tools/smscli/install.sh | bash
+#  Update:     smscli-update   (alias created during install)
+#  Uninstall:  curl -fsSL https://raw.githubusercontent.com/marinoscar/sink/main/tools/smscli/install.sh | bash -s -- --uninstall
 #
-# Usage:
-#   ./install.sh              # Install or update (may prompt for sudo)
-#   ./install.sh --uninstall  # Remove smscli from the system
+#  Or run locally:
+#    ./install.sh
+#    ./install.sh --uninstall
 #
-# The script is idempotent — running it again performs an update:
-#   - Reinstalls dependencies (picks up any changes)
-#   - Rebuilds TypeScript
-#   - Re-creates the symlink (in case the repo moved)
+#  The script is fully idempotent — run it again to update.
 #
+# =============================================================================
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Constants
+# Configuration
 # ---------------------------------------------------------------------------
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BIN_SOURCE="${SCRIPT_DIR}/bin/smscli.js"
+REPO_URL="https://github.com/marinoscar/sink.git"
+INSTALL_DIR="${SMSCLI_INSTALL_DIR:-${HOME}/.smscli}"
 LINK_TARGET="/usr/local/bin/smscli"
+UPDATE_LINK="/usr/local/bin/smscli-update"
 MIN_NODE_MAJOR=18
+BRANCH="main"
 
 # ---------------------------------------------------------------------------
-# Colors (if terminal supports them)
+# Colors
 # ---------------------------------------------------------------------------
 
-if [ -t 1 ]; then
-  RED='\033[0;31m'
-  GREEN='\033[0;32m'
-  YELLOW='\033[0;33m'
-  CYAN='\033[0;36m'
-  BOLD='\033[1m'
-  DIM='\033[2m'
+if [ -t 1 ] 2>/dev/null; then
+  RED='\033[0;31m'    GREEN='\033[0;32m'  YELLOW='\033[0;33m'
+  CYAN='\033[0;36m'   BOLD='\033[1m'      DIM='\033[2m'
   RESET='\033[0m'
 else
   RED='' GREEN='' YELLOW='' CYAN='' BOLD='' DIM='' RESET=''
 fi
 
-info()    { echo -e "${CYAN}${BOLD}[info]${RESET}  $*"; }
-success() { echo -e "${GREEN}${BOLD}[ok]${RESET}    $*"; }
-warn()    { echo -e "${YELLOW}${BOLD}[warn]${RESET}  $*"; }
-fail()    { echo -e "${RED}${BOLD}[error]${RESET} $*" >&2; exit 1; }
+info()    { echo -e "  ${CYAN}●${RESET}  $*"; }
+success() { echo -e "  ${GREEN}✓${RESET}  $*"; }
+warn()    { echo -e "  ${YELLOW}!${RESET}  $*" >&2; }
+fail()    { echo -e "  ${RED}✗${RESET}  $*" >&2; exit 1; }
+step()    { echo -e "\n${BOLD}$*${RESET}"; }
 
 # ---------------------------------------------------------------------------
 # Uninstall
 # ---------------------------------------------------------------------------
 
 if [[ "${1:-}" == "--uninstall" ]]; then
-  info "Uninstalling smscli…"
+  echo ""
+  echo -e "${BOLD}smscli — Uninstaller${RESET}"
+  echo ""
 
-  if [ -L "${LINK_TARGET}" ]; then
-    sudo rm -f "${LINK_TARGET}"
-    success "Removed ${LINK_TARGET}"
-  elif [ -f "${LINK_TARGET}" ]; then
-    sudo rm -f "${LINK_TARGET}"
-    success "Removed ${LINK_TARGET}"
-  else
-    warn "${LINK_TARGET} does not exist — nothing to remove."
+  for f in "${LINK_TARGET}" "${UPDATE_LINK}"; do
+    if [ -L "$f" ] || [ -f "$f" ]; then
+      sudo rm -f "$f"
+      success "Removed $f"
+    fi
+  done
+
+  if [ -d "${INSTALL_DIR}" ]; then
+    echo ""
+    info "Repository at ${INSTALL_DIR} was kept."
+    info "To remove it:  rm -rf ${INSTALL_DIR}"
   fi
 
-  info "To also remove config and auth tokens:"
-  echo "  rm -rf ~/.config/smscli"
+  echo ""
+  info "To remove config and auth tokens:"
+  echo "    rm -rf ~/.config/smscli"
+  echo ""
   exit 0
 fi
 
@@ -78,26 +79,33 @@ fi
 # ---------------------------------------------------------------------------
 
 echo ""
-echo -e "${BOLD}Sink SMS CLI — Installer${RESET}"
-echo -e "${DIM}────────────────────────${RESET}"
+echo -e "${BOLD}  ┌──────────────────────────────┐${RESET}"
+echo -e "${BOLD}  │        smscli installer       │${RESET}"
+echo -e "${BOLD}  └──────────────────────────────┘${RESET}"
 echo ""
 
 # ---------------------------------------------------------------------------
-# 1. Check prerequisites
+# Step 1 — Prerequisites
 # ---------------------------------------------------------------------------
 
-info "Checking prerequisites…"
+step "[1/5] Checking prerequisites"
+
+# git
+if ! command -v git &>/dev/null; then
+  fail "git is not installed. Install it first:  sudo apt install git"
+fi
+success "git $(git --version | awk '{print $3}')"
 
 # Node.js
 if ! command -v node &>/dev/null; then
-  fail "Node.js is not installed. Install Node.js ${MIN_NODE_MAJOR}+ first:\n  https://nodejs.org/ or: sudo apt install nodejs"
+  fail "Node.js is not installed. Install Node.js ${MIN_NODE_MAJOR}+:\n       https://nodejs.org  or  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs"
 fi
 
 NODE_VERSION="$(node -v | sed 's/^v//')"
 NODE_MAJOR="$(echo "${NODE_VERSION}" | cut -d. -f1)"
 
 if [ "${NODE_MAJOR}" -lt "${MIN_NODE_MAJOR}" ]; then
-  fail "Node.js ${NODE_VERSION} found but ${MIN_NODE_MAJOR}+ is required.\n  Upgrade: https://nodejs.org/"
+  fail "Node.js ${NODE_VERSION} found, but ${MIN_NODE_MAJOR}+ is required."
 fi
 success "Node.js ${NODE_VERSION}"
 
@@ -108,88 +116,135 @@ fi
 success "npm $(npm -v)"
 
 # ---------------------------------------------------------------------------
-# 2. Resolve source directory
+# Step 2 — Get the source code
 # ---------------------------------------------------------------------------
 
-info "Source directory: ${SCRIPT_DIR}"
+step "[2/5] Getting source code"
 
-if [ ! -f "${SCRIPT_DIR}/package.json" ]; then
-  fail "package.json not found in ${SCRIPT_DIR}. Run this script from the tools/smscli directory."
+# Detect if running from inside the repo or via curl pipe
+SCRIPT_DIR=""
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ "${BASH_SOURCE[0]}" != "bash" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
+
+# Check if SCRIPT_DIR is inside a valid repo with tools/smscli
+if [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/package.json" ] && [ -f "${SCRIPT_DIR}/bin/smscli.js" ]; then
+  # Running from inside the repo (local install)
+  SMSCLI_DIR="${SCRIPT_DIR}"
+  REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+  info "Running from local repo: ${REPO_ROOT}"
+
+  # Pull latest if this is a git repo
+  if [ -d "${REPO_ROOT}/.git" ]; then
+    info "Pulling latest changes..."
+    (cd "${REPO_ROOT}" && git pull origin "${BRANCH}" 2>&1 | tail -3) || warn "git pull failed — continuing with current code"
+    success "Source up to date"
+  fi
+else
+  # Running via curl pipe or from outside the repo — clone to INSTALL_DIR
+  REPO_ROOT="${INSTALL_DIR}"
+  SMSCLI_DIR="${INSTALL_DIR}/tools/smscli"
+
+  if [ -d "${REPO_ROOT}/.git" ]; then
+    info "Existing installation found at ${REPO_ROOT}"
+    info "Pulling latest changes..."
+    (cd "${REPO_ROOT}" && git fetch origin "${BRANCH}" && git reset --hard "origin/${BRANCH}" 2>&1 | tail -3)
+    success "Updated to latest"
+  else
+    info "Cloning repository to ${REPO_ROOT}..."
+    git clone --depth 1 --branch "${BRANCH}" "${REPO_URL}" "${REPO_ROOT}" 2>&1 | tail -3
+    success "Cloned"
+  fi
+fi
+
+# Sanity check
+if [ ! -f "${SMSCLI_DIR}/package.json" ]; then
+  fail "package.json not found at ${SMSCLI_DIR}. Installation may be corrupt."
+fi
+
+BIN_SOURCE="${SMSCLI_DIR}/bin/smscli.js"
 
 if [ ! -f "${BIN_SOURCE}" ]; then
-  fail "bin/smscli.js not found. The repository may be incomplete."
+  fail "bin/smscli.js not found. Installation may be corrupt."
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Install dependencies
+# Step 3 — Install dependencies
 # ---------------------------------------------------------------------------
 
-info "Installing dependencies…"
+step "[3/5] Installing dependencies"
 
-# Check if we're in a monorepo (workspaces) — if so, install from root
-REPO_ROOT="${SCRIPT_DIR}/../.."
 if [ -f "${REPO_ROOT}/package.json" ] && grep -q '"workspaces"' "${REPO_ROOT}/package.json" 2>/dev/null; then
-  info "Detected monorepo — installing from repository root…"
-  (cd "${REPO_ROOT}" && npm install --workspace=tools/smscli 2>&1 | tail -5)
+  info "Monorepo detected — installing workspace dependencies..."
+  (cd "${REPO_ROOT}" && npm install --workspace=tools/smscli 2>&1 | tail -3)
 else
-  (cd "${SCRIPT_DIR}" && npm install 2>&1 | tail -5)
+  (cd "${SMSCLI_DIR}" && npm install 2>&1 | tail -3)
 fi
 success "Dependencies installed"
 
 # ---------------------------------------------------------------------------
-# 4. Build TypeScript
+# Step 4 — Build
 # ---------------------------------------------------------------------------
 
-info "Building TypeScript…"
-(cd "${SCRIPT_DIR}" && npm run build 2>&1)
+step "[4/5] Building"
+
+(cd "${SMSCLI_DIR}" && npm run build 2>&1 | tail -3)
 success "Build complete"
 
-# ---------------------------------------------------------------------------
-# 5. Create/update symlink
-# ---------------------------------------------------------------------------
-
-# Extract version from the built output
+# Extract version
 CLI_VERSION="$(node "${BIN_SOURCE}" --version 2>/dev/null || echo "unknown")"
+success "Version: ${CLI_VERSION}"
 
-info "Installing smscli ${CLI_VERSION} to ${LINK_TARGET}…"
+# ---------------------------------------------------------------------------
+# Step 5 — Install globally
+# ---------------------------------------------------------------------------
 
-# Check if the link already exists
+step "[5/5] Installing to ${LINK_TARGET}"
+
+# Ensure the bin script is executable
+chmod +x "${BIN_SOURCE}"
+
+# Create or update the main symlink
 if [ -L "${LINK_TARGET}" ]; then
-  EXISTING_TARGET="$(readlink -f "${LINK_TARGET}")"
-  if [ "${EXISTING_TARGET}" = "$(readlink -f "${BIN_SOURCE}")" ]; then
-    success "Symlink already points to the correct location — updated in place"
+  EXISTING="$(readlink -f "${LINK_TARGET}" 2>/dev/null || echo "")"
+  if [ "${EXISTING}" = "$(readlink -f "${BIN_SOURCE}")" ]; then
+    success "Symlink already correct"
   else
-    info "Updating existing symlink (was: ${EXISTING_TARGET})"
     sudo ln -sf "${BIN_SOURCE}" "${LINK_TARGET}"
     success "Symlink updated"
   fi
 elif [ -f "${LINK_TARGET}" ]; then
-  warn "${LINK_TARGET} exists and is not a symlink — replacing it"
+  warn "${LINK_TARGET} exists as a regular file — replacing"
   sudo ln -sf "${BIN_SOURCE}" "${LINK_TARGET}"
-  success "Symlink created (replaced existing file)"
+  success "Symlink created"
 else
   sudo ln -sf "${BIN_SOURCE}" "${LINK_TARGET}"
   success "Symlink created"
 fi
 
-# Ensure the bin script is executable
-chmod +x "${BIN_SOURCE}"
+# Create a convenience `smscli-update` command
+UPDATER_SCRIPT="${SMSCLI_DIR}/.smscli-update.sh"
+cat > "${UPDATER_SCRIPT}" << 'UPDATER'
+#!/usr/bin/env bash
+# Quick updater — pulls latest and reinstalls
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec bash "${SCRIPT_DIR}/install.sh"
+UPDATER
+chmod +x "${UPDATER_SCRIPT}"
+sudo ln -sf "${UPDATER_SCRIPT}" "${UPDATE_LINK}" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 6. Verify
+# Verify
 # ---------------------------------------------------------------------------
 
 echo ""
-info "Verifying installation…"
-
 if command -v smscli &>/dev/null; then
   INSTALLED_VERSION="$(smscli --version 2>/dev/null || echo "unknown")"
-  success "smscli ${INSTALLED_VERSION} is now available globally"
+  success "smscli ${INSTALLED_VERSION} is installed and ready"
 else
-  warn "smscli is installed at ${LINK_TARGET} but may not be in your PATH"
-  warn "Add /usr/local/bin to your PATH if it's not already there:"
-  echo "  export PATH=\"/usr/local/bin:\$PATH\""
+  warn "smscli was installed at ${LINK_TARGET} but is not in your PATH"
+  warn "Add this to your shell profile:"
+  echo '    export PATH="/usr/local/bin:$PATH"'
 fi
 
 # ---------------------------------------------------------------------------
@@ -197,18 +252,18 @@ fi
 # ---------------------------------------------------------------------------
 
 echo ""
-echo -e "${BOLD}Installation complete!${RESET}"
+echo -e "${BOLD}  ┌──────────────────────────────────────────────┐${RESET}"
+echo -e "${BOLD}  │  ${GREEN}✓${RESET}${BOLD}  Installation complete!                    │${RESET}"
+echo -e "${BOLD}  └──────────────────────────────────────────────┘${RESET}"
 echo ""
 echo "  Get started:"
-echo "    smscli --help              # Show all commands"
-echo "    smscli --version           # Show version"
-echo "    smscli config set-url URL  # Set your API URL"
-echo "    smscli auth login          # Authenticate"
-echo "    smscli doctor              # Check setup"
 echo ""
-echo "  To update later, run this script again:"
-echo "    ${SCRIPT_DIR}/install.sh"
+echo "    ${DIM}\$${RESET} smscli config set-url URL    ${DIM}# Set your API URL${RESET}"
+echo "    ${DIM}\$${RESET} smscli auth login             ${DIM}# Authenticate${RESET}"
+echo "    ${DIM}\$${RESET} smscli doctor                 ${DIM}# Check setup${RESET}"
+echo "    ${DIM}\$${RESET} smscli otp wait -q            ${DIM}# Wait for an OTP code${RESET}"
+echo "    ${DIM}\$${RESET} smscli --help                 ${DIM}# Show all commands${RESET}"
 echo ""
-echo "  To uninstall:"
-echo "    ${SCRIPT_DIR}/install.sh --uninstall"
+echo "  Update:     ${DIM}smscli-update${RESET}  or  ${DIM}curl -fsSL https://raw.githubusercontent.com/marinoscar/sink/main/tools/smscli/install.sh | bash${RESET}"
+echo "  Uninstall:  ${DIM}${SMSCLI_DIR}/install.sh --uninstall${RESET}"
 echo ""

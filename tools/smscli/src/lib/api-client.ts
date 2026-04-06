@@ -137,6 +137,32 @@ export async function getDevices(): Promise<Device[]> {
 }
 
 // ---------------------------------------------------------------------------
+// OTP extraction (LLM-powered, server-side)
+// ---------------------------------------------------------------------------
+
+export interface OtpExtractionResult {
+  code: string | null;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+}
+
+/**
+ * POST /api/device-text-messages/extract-otp — extract OTP using LLM.
+ */
+export async function extractOtpViaApi(messageBody: string): Promise<OtpExtractionResult> {
+  const res = await apiRequest('/device-text-messages/extract-otp', {
+    method: 'POST',
+    body: JSON.stringify({ messageBody }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { message?: string }).message || `API error ${res.status}`);
+  }
+  const json = (await res.json()) as { data: OtpExtractionResult };
+  return json.data;
+}
+
+// ---------------------------------------------------------------------------
 // Phone number → SIM ID resolution
 // ---------------------------------------------------------------------------
 

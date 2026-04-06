@@ -86,56 +86,76 @@ graph TB
 
 ---
 
-## Installation
+## Install, Update & Uninstall
 
-The CLI is part of the Sink monorepo and uses npm workspaces.
+### Install
+
+Install with a single command — no manual cloning required:
 
 ```bash
-# From the repository root
-npm install
-
-# Build the CLI
-npm -w tools/smscli run build
-
-# Verify installation
-node tools/smscli/bin/smscli.js --help
-
-# Or via the root package.json script
-npm run smscli -- --help
+curl -fsSL https://raw.githubusercontent.com/marinoscar/sink/main/tools/smscli/install.sh | bash
 ```
 
-### System-wide installation (recommended for Linux/Ubuntu)
+**What the installer does:**
+1. Checks that `git`, `node` (>= 18), and `npm` are installed
+2. Clones the repository to `~/.smscli`
+3. Installs dependencies and builds the TypeScript source
+4. Creates a global `smscli` command at `/usr/local/bin/smscli`
+5. Creates a global `smscli-update` command for easy future updates
+6. Verifies the installation
 
-The included `install.sh` script installs `smscli` so it can be invoked from anywhere. It also handles updates — just run it again.
+Confirm the install with:
 
 ```bash
-# Install (or update)
-cd tools/smscli
-./install.sh
-
-# Now available globally
 smscli --version
 # 2026.3.1
-
-# Uninstall
-./install.sh --uninstall
 ```
 
-**What `install.sh` does:**
-1. Checks prerequisites (Node.js >= 18, npm)
-2. Installs npm dependencies (detects monorepo workspace)
-3. Builds TypeScript
-4. Creates a symlink at `/usr/local/bin/smscli` → `tools/smscli/bin/smscli.js`
-5. Verifies the installation
+### Update
 
-**To update:** pull the latest code and run `./install.sh` again. It rebuilds and re-links.
-
-### Alternative: npm link
+Three ways to update to the latest version:
 
 ```bash
-cd tools/smscli
-npm link
-smscli --help
+# Easiest — use the update command (created during install)
+smscli-update
+
+# Or re-run the install command
+curl -fsSL https://raw.githubusercontent.com/marinoscar/sink/main/tools/smscli/install.sh | bash
+
+# Or run the local install script directly
+~/.smscli/tools/smscli/install.sh
+```
+
+### Uninstall
+
+```bash
+# Run locally
+~/.smscli/tools/smscli/install.sh --uninstall
+
+# Or via curl
+curl -fsSL https://raw.githubusercontent.com/marinoscar/sink/main/tools/smscli/install.sh | bash -s -- --uninstall
+```
+
+To also remove the source and configuration:
+
+```bash
+rm -rf ~/.smscli            # Remove the cloned repository
+rm -rf ~/.config/smscli     # Remove auth tokens and config
+```
+
+### Environment variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SMSCLI_INSTALL_DIR` | Override the installation directory | `~/.smscli` |
+
+### Manual installation
+
+```bash
+git clone https://github.com/marinoscar/sink.git ~/.smscli
+cd ~/.smscli/tools/smscli
+npm install && npm run build
+sudo ln -sf "$(pwd)/bin/smscli.js" /usr/local/bin/smscli
 ```
 
 ---
@@ -676,7 +696,7 @@ smscli uses **calendar-based versioning**: `YYYY.M.patch`
 
 **Examples:** `2026.3.1` (first release of March 2026), `2026.3.2` (second release that month), `2026.4.1` (first April release).
 
-The version is defined in a single source of truth: `src/version.ts`. To bump the version, edit that file and run `./install.sh` to update.
+The version is defined in a single source of truth: `src/version.ts`. To bump the version, edit that file and run `smscli-update` (or re-run the install script) to rebuild and re-link.
 
 ```bash
 smscli --version
