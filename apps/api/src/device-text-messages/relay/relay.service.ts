@@ -9,12 +9,20 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RegisterDeviceDto } from '../dto/register-device.dto';
 import { SyncSimsDto } from '../dto/sync-sims.dto';
 import { RelaySmsDto } from '../dto/relay-sms.dto';
+import {
+  OtpExtractorService,
+} from '../otp-extractor.service';
 
 @Injectable()
 export class RelayService {
   private readonly logger = new Logger(RelayService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  private static readonly OTP_CANDIDATE_REGEX = /\d{4,10}/;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly otpExtractorService: OtpExtractorService,
+  ) {}
 
   /**
    * Register or update a device for a user.
@@ -175,6 +183,12 @@ export class RelayService {
     const stored = result.count;
     const duplicates = dto.messages.length - stored;
 
+    // Run OTP extraction on newly stored messages (fire-and-forget, don't block relay response)
+    const messageHashes = messagesToInsert.map((m) => m.messageHash);
+    this.processOtpExtraction(messageHashes, messagesToInsert).catch((err) => {
+      this.logger.error(`OTP extraction failed: ${(err as Error).message}`);
+    });
+
     this.logger.log(
       `SMS relay for device ${dto.deviceId}: ${stored} stored, ${duplicates} duplicates skipped`,
     );
@@ -196,6 +210,57 @@ export class RelayService {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  private mightContainOtp(body: string): boolean {
+    return RelayService.OTP_CANDIDATE_REGEX.test(body);
+  }
+
+  private async processOtpExtraction(
+    messageHashes: string[],
+    insertedMessages: Array<{ messageHash: string; body: string }>,
+  ): Promise<void> {
+    // Find stored messages by hash to get their IDs
+    const storedMessages = await this.prisma.smsMessage.findMany({
+      where: { messageHash: { in: messageHashes } },
+      select: { id: true, messageHash: true, body: true },
+    });
+
+    const hashToId = new Map(storedMessages.map((m) => [m.messageHash, m.id]));
+
+    for (const msg of insertedMessages) {
+      const id = hashToId.get(msg.messageHash);
+      if (!id) continue; // was a duplicate, skip
+
+      if (!this.mightContainOtp(msg.body)) continue;
+
+      try {
+        const extraction = await this.otpExtractorService.extractOtp(msg.body);
+        if (extraction.code) {
+          await this.prisma.smsMessage.update({
+            where: { id },
+            data: {
+              isOtp: true,
+              metadata: {
+                otp: {
+                  code: extraction.code,
+                  confidence: extraction.confidence,
+                  reason: extraction.reason,
+                  extractedAt: new Date().toISOString(),
+                },
+              },
+            },
+          });
+          this.logger.log(
+            `OTP extracted for message ${id}: code=${extraction.code}, confidence=${extraction.confidence}`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `OTP extraction failed for message ${id}: ${(err as Error).message}`,
+        );
+      }
+    }
+  }
 
   private async verifyDeviceOwnership(
     userId: string,
