@@ -35,4 +35,10 @@ class SimCardReader @Inject constructor(
             )
         } ?: emptyList()
     }
+
+    fun computeSimFingerprint(): String {
+        val sims = readSimCards()
+        if (sims.isEmpty()) return ""
+        return sims.mapNotNull { it.iccId }.sorted().joinToString(",")
+    }
 }
