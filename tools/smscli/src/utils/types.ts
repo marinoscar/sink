@@ -87,6 +87,14 @@ export interface MessageSim {
   phoneNumber: string | null;
 }
 
+/** OTP details stored in message metadata when is_otp is true. */
+export interface OtpMetadata {
+  code: string;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+  extractedAt: string;
+}
+
 /** A single SMS message returned by the list endpoint. */
 export interface SmsMessage {
   id: string;
@@ -101,6 +109,8 @@ export interface SmsMessage {
   simSlotIndex: number | null;
   messageType: string;
   senderDisplayName: string | null;
+  isOtp: boolean;
+  metadata: { otp?: OtpMetadata } | null;
   createdAt: string;
   device: MessageDevice;
   sim: MessageSim | null;
@@ -129,6 +139,7 @@ export interface MessageQueryParams {
   deviceId?: string;
   deviceSimId?: string;
   messageType?: string;
+  isOtp?: boolean;
 }
 
 // ---------------------------------------------------------------------------

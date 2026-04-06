@@ -3,7 +3,7 @@ import { getMessages, resolvePhoneNumber, extractOtpViaApi } from '../lib/api-cl
 import { formatOtpResult } from '../lib/formatters.js';
 import { OutputManager } from '../utils/output.js';
 import * as out from '../utils/output.js';
-import type { GlobalOptions, MessageQueryParams } from '../utils/types.js';
+import type { GlobalOptions, MessageQueryParams, SmsMessage } from '../utils/types.js';
 
 function getOutput(cmd: Command): OutputManager {
   const opts = cmd.optsWithGlobals<GlobalOptions>();
@@ -82,6 +82,7 @@ export function registerOtpCommands(program: Command): void {
           dateFrom: startTime,
           page: 1,
           pageSize: 10,
+          isOtp: true,
         };
 
         if (opts.sender) params.sender = opts.sender;
@@ -108,22 +109,9 @@ export function registerOtpCommands(program: Command): void {
               if (seenIds.has(msg.id)) continue;
               seenIds.add(msg.id);
 
-              const extraction = await extractOtpViaApi(msg.body);
-              if (extraction.code) {
-                output.result(
-                  {
-                    code: extraction.code,
-                    confidence: extraction.confidence,
-                    reason: extraction.reason,
-                    sender: msg.sender,
-                    body: msg.body,
-                    smsTimestamp: msg.smsTimestamp,
-                    receivedAt: msg.receivedAt,
-                    messageId: msg.id,
-                  },
-                  () => formatOtpResult(extraction.code!, msg),
-                  () => console.log(extraction.code),
-                );
+              const otp = msg.metadata?.otp;
+              if (otp?.code) {
+                outputOtpResult(output, otp.code, otp.confidence, otp.reason, msg);
                 process.exit(0);
               }
             }
@@ -240,6 +228,7 @@ export function registerOtpCommands(program: Command): void {
         const params: MessageQueryParams = {
           page: 1,
           pageSize: 20,
+          isOtp: true,
         };
         if (opts.sender) params.sender = opts.sender;
         if (opts.since) params.dateFrom = opts.since;
@@ -251,22 +240,9 @@ export function registerOtpCommands(program: Command): void {
         const result = await getMessages(params);
 
         for (const msg of result.items) {
-          const extraction = await extractOtpViaApi(msg.body);
-          if (extraction.code) {
-            output.result(
-              {
-                code: extraction.code,
-                confidence: extraction.confidence,
-                reason: extraction.reason,
-                sender: msg.sender,
-                body: msg.body,
-                smsTimestamp: msg.smsTimestamp,
-                receivedAt: msg.receivedAt,
-                messageId: msg.id,
-              },
-              () => formatOtpResult(extraction.code!, msg),
-              () => console.log(extraction.code),
-            );
+          const otp = msg.metadata?.otp;
+          if (otp?.code) {
+            outputOtpResult(output, otp.code, otp.confidence, otp.reason, msg);
             return;
           }
         }
@@ -283,6 +259,29 @@ export function registerOtpCommands(program: Command): void {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function outputOtpResult(
+  output: OutputManager,
+  code: string,
+  confidence: string,
+  reason: string,
+  msg: SmsMessage,
+): void {
+  output.result(
+    {
+      code,
+      confidence,
+      reason,
+      sender: msg.sender,
+      body: msg.body,
+      smsTimestamp: msg.smsTimestamp,
+      receivedAt: msg.receivedAt,
+      messageId: msg.id,
+    },
+    () => formatOtpResult(code, msg),
+    () => console.log(code),
+  );
+}
 
 function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {

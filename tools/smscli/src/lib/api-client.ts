@@ -105,6 +105,7 @@ export async function getMessages(
   if (params.deviceId) qs.set('deviceId', params.deviceId);
   if (params.deviceSimId) qs.set('deviceSimId', params.deviceSimId);
   if (params.messageType) qs.set('messageType', params.messageType);
+  if (params.isOtp !== undefined) qs.set('isOtp', String(params.isOtp));
 
   const path = `/device-text-messages${qs.toString() ? '?' + qs.toString() : ''}`;
   const res = await apiRequest(path);
