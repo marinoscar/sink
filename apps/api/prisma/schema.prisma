@@ -471,8 +471,9 @@ model SmsMessage {
   deviceSimId  String?  @map("device_sim_id") @db.Uuid
   sender       String
   body         String   @db.Text
-  smsTimestamp DateTime @map("sms_timestamp") @db.Timestamptz
-  receivedAt   DateTime @default(now()) @map("received_at") @db.Timestamptz
+  smsTimestamp       DateTime @map("sms_timestamp") @db.Timestamptz
+  smsTimezoneOffset  String?  @map("sms_timezone_offset") @db.VarChar(6)
+  receivedAt         DateTime @default(now()) @map("received_at") @db.Timestamptz
   messageHash  String   @unique @map("message_hash")
   simSlotIndex       Int?     @map("sim_slot_index")
   carrierName        String?  @map("carrier_name")
