@@ -15,6 +15,7 @@ import {
   Tooltip,
   IconButton,
   Snackbar,
+  Chip,
 } from '@mui/material';
 import { Sms as SmsIcon, ContentCopy } from '@mui/icons-material';
 import type { SmsMessageItem } from '../../types';
@@ -161,6 +162,7 @@ export function MessagesTable({
             <TableRow>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>Date / Time</TableCell>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>Sender</TableCell>
+              <TableCell sx={{ whiteSpace: 'nowrap' }}>OTP</TableCell>
               <TableCell>Message</TableCell>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>Device</TableCell>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>SIM</TableCell>
@@ -177,6 +179,19 @@ export function MessagesTable({
                 </TableCell>
                 <TableCell sx={{ whiteSpace: 'nowrap' }}>
                   <Typography variant="body2">{msg.sender}</Typography>
+                </TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                  {msg.isOtp && msg.metadata?.otp ? (
+                    <Tooltip title={`${msg.metadata.otp.confidence} confidence: ${msg.metadata.otp.reason}`}>
+                      <Chip
+                        label={msg.metadata.otp.code}
+                        size="small"
+                        color={msg.metadata.otp.confidence === 'high' ? 'success' : msg.metadata.otp.confidence === 'medium' ? 'warning' : 'default'}
+                      />
+                    </Tooltip>
+                  ) : (
+                    <Typography variant="body2" color="text.disabled">—</Typography>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Typography variant="body2">

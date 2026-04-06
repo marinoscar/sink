@@ -170,6 +170,13 @@ export interface CalendarUploadResponse {
 }
 
 // Device Text Messages
+export interface OtpMetadata {
+  code: string;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+  extractedAt: string;
+}
+
 export interface SmsMessageItem {
   id: string;
   sender: string;
@@ -178,6 +185,8 @@ export interface SmsMessageItem {
   receivedAt: string;
   simSlotIndex: number | null;
   carrierName: string | null;
+  isOtp: boolean;
+  metadata: { otp?: OtpMetadata } | null;
   device: {
     id: string;
     name: string;
