@@ -9,6 +9,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sink.app.api.Environment
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -18,6 +19,7 @@ fun SettingsScreen(
     val state by viewModel.state.collectAsState()
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showResetDialog by remember { mutableStateOf(false) }
+    var pendingEnvironment by remember { mutableStateOf<Environment?>(null) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -30,7 +32,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Server info
+            // Server info + Environment selector
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -71,6 +73,38 @@ fun SettingsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                        }
+                    }
+
+                    // Environment selector
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Environment", style = MaterialTheme.typography.labelMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Environment.entries.forEach { env ->
+                            val isSelected = state.currentEnvironment == env
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    if (!isSelected) {
+                                        pendingEnvironment = env
+                                    }
+                                },
+                                label = { Text(env.label) },
+                                leadingIcon = if (isSelected) {
+                                    {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(FilterChipDefaults.IconSize)
+                                        )
+                                    }
+                                } else null,
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                     }
                 }
@@ -139,6 +173,26 @@ fun SettingsScreen(
                 Text("Logout")
             }
         }
+    }
+
+    // Environment switch confirmation dialog
+    pendingEnvironment?.let { env ->
+        AlertDialog(
+            onDismissRequest = { pendingEnvironment = null },
+            title = { Text("Switch Environment") },
+            text = {
+                Text("Switching to ${env.label} will sign you out and require re-authorization. Continue?")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.switchEnvironment(env)
+                    pendingEnvironment = null
+                }) { Text("Switch") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingEnvironment = null }) { Text("Cancel") }
+            }
+        )
     }
 
     if (showResetDialog) {

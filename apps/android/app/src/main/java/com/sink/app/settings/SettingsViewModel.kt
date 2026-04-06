@@ -3,6 +3,8 @@ package com.sink.app.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sink.app.BuildConfig
+import com.sink.app.api.Environment
+import com.sink.app.api.EnvironmentManager
 import com.sink.app.auth.TokenManager
 import com.sink.app.logging.db.LogDatabase
 import com.sink.app.messagesync.db.SmsOutboxDatabase
@@ -21,7 +23,8 @@ data class SettingsState(
     val serverUrl: String = BuildConfig.API_BASE_URL,
     val appVersion: String = BuildConfig.VERSION_NAME,
     val deviceId: String? = null,
-    val isResetting: Boolean = false
+    val isResetting: Boolean = false,
+    val currentEnvironment: Environment = Environment.PROD
 )
 
 @HiltViewModel
@@ -29,7 +32,8 @@ class SettingsViewModel @Inject constructor(
     private val tokenManager: TokenManager,
     private val smsOutboxDatabase: SmsOutboxDatabase,
     private val logDatabase: LogDatabase,
-    private val appPreferences: AppPreferences
+    private val appPreferences: AppPreferences,
+    private val environmentManager: EnvironmentManager
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsState())
@@ -42,7 +46,21 @@ class SettingsViewModel @Inject constructor(
     private fun loadSettings() {
         viewModelScope.launch {
             val deviceId = tokenManager.getDeviceId()
-            _state.value = SettingsState(deviceId = deviceId)
+            val env = environmentManager.currentEnvironment.value
+            _state.value = SettingsState(
+                serverUrl = env.baseUrl,
+                deviceId = deviceId,
+                currentEnvironment = env
+            )
+        }
+    }
+
+    fun switchEnvironment(env: Environment) {
+        viewModelScope.launch {
+            environmentManager.switchEnvironment(env)
+            appPreferences.clearDeviceRegistration()
+            _state.update { it.copy(currentEnvironment = env, serverUrl = env.baseUrl) }
+            tokenManager.clearTokens()
         }
     }
 
