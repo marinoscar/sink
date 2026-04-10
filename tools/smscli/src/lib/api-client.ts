@@ -1,5 +1,6 @@
 import { config } from '../utils/config.js';
 import { loadTokens, isTokenExpired } from './auth-store.js';
+import { fetchWithDiagnostics } from './http.js';
 import { refreshAccessToken } from './device-flow.js';
 import type {
   AuthTokens,
@@ -52,7 +53,7 @@ export async function apiRequest(
     headers['Authorization'] = `Bearer ${tokens.accessToken}`;
   }
 
-  const response = await fetch(url, { ...fetchOptions, headers });
+  const response = await fetchWithDiagnostics(url, { ...fetchOptions, headers });
 
   if (response.status === 401 && requireAuth) {
     throw new Error('Session expired. Please login again: smscli auth login');

@@ -1,5 +1,6 @@
 import { config } from '../utils/config.js';
 import * as output from '../utils/output.js';
+import { fetchWithDiagnostics } from './http.js';
 import { saveTokens } from './auth-store.js';
 import { VERSION } from '../version.js';
 import type { AuthTokens } from '../utils/types.js';
@@ -52,7 +53,7 @@ interface ErrorResponse {
 export async function loginWithDeviceFlow(): Promise<AuthTokens> {
   output.info('Requesting device authorization…');
 
-  const codeResponse = await fetch(`${config.apiUrl}/auth/device/code`, {
+  const codeResponse = await fetchWithDiagnostics(`${config.apiUrl}/auth/device/code`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -160,7 +161,7 @@ export async function loginWithDeviceFlow(): Promise<AuthTokens> {
  * Refresh the access token using a stored refresh token.
  */
 export async function refreshAccessToken(refreshToken: string): Promise<AuthTokens> {
-  const response = await fetch(`${config.apiUrl}/auth/refresh`, {
+  const response = await fetchWithDiagnostics(`${config.apiUrl}/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken }),
