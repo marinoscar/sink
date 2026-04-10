@@ -1,7 +1,6 @@
 import { config } from '../utils/config.js';
 import { loadTokens, isTokenExpired } from './auth-store.js';
 import { fetchWithDiagnostics } from './http.js';
-import { refreshAccessToken } from './device-flow.js';
 import type {
   AuthTokens,
   Device,
@@ -20,11 +19,7 @@ async function ensureValidTokens(): Promise<AuthTokens> {
     throw new Error('Not authenticated. Run: smscli auth login');
   }
   if (isTokenExpired(tokens)) {
-    try {
-      return await refreshAccessToken(tokens.refreshToken);
-    } catch {
-      throw new Error('Session expired. Please login again: smscli auth login');
-    }
+    throw new Error('Token expired or revoked. Run: smscli auth login');
   }
   return tokens;
 }

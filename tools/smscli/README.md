@@ -22,11 +22,11 @@ graph TB
         RS["RelayService<br/><i>SHA-256 deduplication</i>"]
         DB[("PostgreSQL<br/><i>sms_messages table</i>")]
         QC["QueryController<br/><i>GET /api/device-text-messages</i>"]
-        DA["DeviceAuthController<br/><i>RFC 8628 Device Flow</i>"]
+        TK["TokensController<br/><i>Personal Access Tokens</i>"]
     end
 
     subgraph CLI["Sink SMS CLI (smscli)"]
-        AUTH["auth login<br/><i>Device Authorization Flow</i>"]
+        AUTH["auth login<br/><i>PAT paste</i>"]
         MSG["messages list/search/latest<br/><i>Paginated queries with filters</i>"]
         OTP["otp wait<br/><i>Poll + extract OTP code</i>"]
         DEV["devices list<br/><i>View devices & SIMs</i>"]
@@ -47,7 +47,7 @@ graph TB
     RS -->|"createMany<br/>skipDuplicates"| DB
     DB --> QC
 
-    DA -->|"Device code + token"| AUTH
+    TK -->|"PAT created in browser,<br/>pasted into CLI"| AUTH
     AUTH --> STORE
     STORE --> MSG
     STORE --> OTP
@@ -166,9 +166,10 @@ sudo ln -sf "$(pwd)/bin/smscli.js" /usr/local/bin/smscli
 # 1. Configure the API URL (if not using default localhost:3535)
 smscli config set-url https://your-server.example.com
 
-# 2. Authenticate using the device authorization flow
+# 2. Authenticate by pasting a PAT
 smscli auth login
-# → Opens browser, displays a code, waits for approval
+# → Opens https://sink.marin.cr/settings/tokens in your browser,
+#   create a token, copy it, then paste it at the prompt
 
 # 3. Check your devices and phone numbers
 smscli devices list
@@ -219,7 +220,7 @@ Every command supports three output modes, controlled by global flags:
 | `-q, --quiet` | Minimal output mode. Print only essential values with no formatting, headers, or decoration. For OTP commands, prints just the bare code. For message lists, prints one message per line (tab-separated). Ideal for shell piping. |
 | `--api-url <url>` | Override the Sink API base URL for this invocation only. Takes precedence over the config file and `SMSCLI_API_URL` environment variable. |
 | `--no-color` | Disable all ANSI color codes in output. Useful for logging, CI environments, or terminals that don't support colors. |
-| `-v, --verbose` | Enable verbose logging. Shows HTTP request/response details, token refresh events, and SIM resolution steps. |
+| `-v, --verbose` | Enable verbose logging. Shows HTTP request/response details and SIM resolution steps. |
 
 ---
 
@@ -229,13 +230,21 @@ Manage authentication with the Sink API.
 
 #### `smscli auth login`
 
-Authenticate using the OAuth 2.0 Device Authorization flow (RFC 8628). Opens a browser to the activation page, displays a one-time user code, and polls until the user approves. Tokens are stored at `~/.config/smscli/auth.json`.
+Authenticate by pasting a Personal Access Token (PAT) created at `https://sink.marin.cr/settings/tokens`. The token is verified against the server and stored locally at `~/.config/smscli/auth.json`.
 
 ```bash
 smscli auth login
-# Opening browser to: https://your-server.example.com/activate?code=ABCD-1234
-# Your code: ABCD-1234
-# Waiting for authorization...
+# To authenticate smscli, you need a Personal Access Token (PAT).
+#
+#   1. Open this URL in your browser and sign in:
+#      https://sink.marin.cr/settings/tokens
+#   2. Click "Create Token", give it a name (e.g. "smscli"),
+#      set an expiration (e.g. 876000 hours for 100 years),
+#      then copy the token.
+#   3. Paste the token below and press Enter.
+#
+# Paste your PAT: <user pastes>
+# Verifying...
 # Logged in as user@example.com
 ```
 
@@ -262,14 +271,6 @@ smscli auth status
 
 smscli auth status --json
 # {"success":true,"data":{"authenticated":true,"email":"user@example.com","roles":["admin"],"expiresAt":"...","expired":false}}
-```
-
-#### `smscli auth refresh`
-
-Force an immediate refresh of the access token.
-
-```bash
-smscli auth refresh
 ```
 
 ---
@@ -653,12 +654,11 @@ Stored at `~/.config/smscli/auth.json` with permissions `0o600` (owner read/writ
 ```json
 {
   "accessToken": "eyJ...",
-  "refreshToken": "a1b2c3...",
   "expiresAt": 1711800000000
 }
 ```
 
-Access tokens are short-lived (15 min default) and automatically refreshed using the stored refresh token.
+The stored token is the PAT itself. Expiration is set at PAT creation time via the web UI at `/settings/tokens`; there is no automatic refresh. Run `smscli auth login` again to replace the token when it expires.
 
 ---
 
@@ -709,8 +709,8 @@ smscli --version
 
 - **Token storage**: Auth tokens stored at `~/.config/smscli/auth.json` with file permissions `0600` (owner-only read/write)
 - **No secrets in CLI args**: Tokens are never passed as command-line arguments (which would be visible in process lists)
-- **Short-lived access tokens**: 15-minute default TTL with automatic refresh
-- **Device authorization flow**: No password entry in the CLI — authentication happens in the browser via OAuth
+- **Configurable token expiration**: PAT lifetime is set by the user at creation time in the web UI; no automatic refresh occurs
+- **Personal Access Tokens**: Long-lived tokens managed in the web UI at `/settings/tokens`; no passwords or OAuth secrets in the CLI.
 
 ---
 
@@ -743,7 +743,7 @@ tools/smscli/
 │   ├── index.ts           # Commander setup, global flags
 │   ├── version.ts         # Version constant (single source of truth)
 │   ├── commands/          # Command implementations
-│   │   ├── auth.ts        # login, logout, status, refresh
+│   │   ├── auth.ts        # login, logout, status
 │   │   ├── messages.ts    # list, search, latest, watch, export
 │   │   ├── otp.ts         # wait, extract, latest
 │   │   ├── devices.ts     # list, inspect
@@ -753,7 +753,7 @@ tools/smscli/
 │   ├── lib/               # Business logic
 │   │   ├── api-client.ts  # HTTP client with auth + SMS methods
 │   │   ├── auth-store.ts  # Token persistence
-│   │   ├── device-flow.ts # RFC 8628 device authorization
+│   │   ├── pat-auth.ts    # PAT paste login flow
 │   │   ├── otp-parser.ts  # OTP regex extraction
 │   │   └── formatters.ts  # Human-readable output formatters
 │   └── utils/             # Shared utilities
