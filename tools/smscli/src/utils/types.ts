@@ -149,8 +149,7 @@ export interface MessageQueryParams {
 /** Stored authentication tokens. */
 export interface AuthTokens {
   accessToken: string;
-  refreshToken: string;
-  expiresAt: number; // Unix timestamp in milliseconds
+  expiresAt: number; // Unix timestamp in milliseconds, parsed from JWT exp
 }
 
 /** User info extracted from the JWT or /auth/me endpoint. */

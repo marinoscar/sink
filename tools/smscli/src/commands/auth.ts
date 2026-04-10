@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { loginWithDeviceFlow, refreshAccessToken } from '../lib/device-flow.js';
+import { loginWithPat } from '../lib/pat-auth.js';
 import {
   loadTokens,
   clearTokens,
@@ -7,6 +7,7 @@ import {
   getUserFromToken,
 } from '../lib/auth-store.js';
 import { getCurrentUser } from '../lib/api-client.js';
+import { getAppUrl } from '../utils/config.js';
 import { OutputManager } from '../utils/output.js';
 import * as out from '../utils/output.js';
 import type { GlobalOptions } from '../utils/types.js';
@@ -21,8 +22,7 @@ export function registerAuthCommands(program: Command): void {
   const auth = program
     .command('auth')
     .description(
-      'Manage authentication with the Sink API. ' +
-      'Uses the OAuth 2.0 Device Authorization flow (RFC 8628) to obtain and persist access tokens.',
+      'Manage authentication with the Sink API using a Personal Access Token (PAT).',
     );
 
   // -----------------------------------------------------------------------
@@ -31,18 +31,16 @@ export function registerAuthCommands(program: Command): void {
   auth
     .command('login')
     .description(
-      'Authenticate with the Sink API using the OAuth 2.0 Device Authorization flow (RFC 8628). ' +
-      'Opens a browser to the activation page, displays a one-time user code, and polls until ' +
-      'the user approves the device. Stores tokens locally at ~/.config/smscli/auth.json.',
+      `Authenticate with the Sink API by pasting a Personal Access Token created at ${getAppUrl()}/settings/tokens. Stores the token locally at ~/.config/smscli/auth.json.`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       const output = getOutput(cmd);
       try {
-        const tokens = await loginWithDeviceFlow();
-        const userInfo = getUserFromToken(tokens);
+        await loginWithPat();
+        const userInfo = await getCurrentUser();
 
         output.result(
-          { email: userInfo?.email, roles: userInfo?.roles },
+          { email: userInfo.email, roles: userInfo.roles },
           (data) => {
             out.success(`Logged in as ${data.email}`);
             if (data.roles?.length) {
@@ -119,42 +117,9 @@ export function registerAuthCommands(program: Command): void {
           out.keyValue('Email', email);
           out.keyValue('Roles', roles.join(', ') || '—');
           out.keyValue('Expires', expiresAt);
-          out.keyValue('Status', expired ? '⚠ Expired (will auto-refresh)' : '✓ Valid');
+          out.keyValue('Status', expired ? '⚠ Expired (run smscli auth login)' : '✓ Valid');
         },
         () => console.log(email),
       );
-    });
-
-  // -----------------------------------------------------------------------
-  // refresh
-  // -----------------------------------------------------------------------
-  auth
-    .command('refresh')
-    .description(
-      'Force an immediate refresh of the access token using the stored refresh token. ' +
-      'Useful when the access token is about to expire and you want to avoid interruption ' +
-      'during a long operation.',
-    )
-    .action(async (_opts: unknown, cmd: Command) => {
-      const output = getOutput(cmd);
-      const tokens = loadTokens();
-
-      if (!tokens) {
-        output.fail('Not logged in. Run: smscli auth login', 'NOT_AUTHENTICATED');
-        process.exit(1);
-      }
-
-      try {
-        const newTokens = await refreshAccessToken(tokens.refreshToken);
-        const expiresAt = new Date(newTokens.expiresAt).toISOString();
-        output.result(
-          { refreshed: true, expiresAt },
-          () => out.success(`Token refreshed. New expiry: ${expiresAt}`),
-          () => console.log('ok'),
-        );
-      } catch (err) {
-        output.fail((err as Error).message, 'REFRESH_FAILED');
-        process.exit(1);
-      }
     });
 }
