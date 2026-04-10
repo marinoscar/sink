@@ -10,7 +10,7 @@ interface SmscliConfig {
   appUrl?: string;
 }
 
-const DEFAULT_APP_URL = 'http://localhost:3535';
+const DEFAULT_APP_URL = 'https://sink.marin.cr';
 
 function getConfigDir(): string {
   return process.env.SMSCLI_CONFIG_DIR || join(homedir(), '.config', 'smscli');
