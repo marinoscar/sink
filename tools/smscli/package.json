@@ -1,6 +1,6 @@
 {
   "name": "@enterprise/smscli",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "AI-agent-friendly CLI for reading SMS messages and extracting OTP codes from the Sink API",
   "type": "module",
   "main": "dist/index.js",
