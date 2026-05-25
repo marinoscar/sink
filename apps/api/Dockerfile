@@ -8,7 +8,9 @@
 FROM node:20-alpine AS base
 WORKDIR /app
 # Install OpenSSL for Prisma compatibility
-RUN apk add --no-cache openssl openssl-dev
+RUN apk add --no-cache openssl openssl-dev python3 py3-pip ffmpeg ca-certificates \
+ && pip3 install --no-cache-dir --break-system-packages yt-dlp \
+ && yt-dlp --version
 RUN corepack enable
 
 # -----------------------------------------------------------------------------

@@ -18,6 +18,7 @@ import { TokensModule } from './tokens/tokens.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { DeviceTextMessagesModule } from './device-text-messages/device-text-messages.module';
 import { AppDistributionModule } from './app-distribution/app-distribution.module';
+import { VideoModule } from './video/video.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { TestAuthModule } from './test-auth/test-auth.module';
 
@@ -61,6 +62,7 @@ import configuration from './config/configuration';
     CalendarModule,
     DeviceTextMessagesModule,
     AppDistributionModule,
+    VideoModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),
