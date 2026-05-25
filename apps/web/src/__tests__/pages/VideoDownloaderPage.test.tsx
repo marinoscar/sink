@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../utils/test-utils';
 import VideoDownloaderPage from '../../pages/VideoDownloaderPage';
@@ -63,12 +63,22 @@ describe('VideoDownloaderPage', () => {
 
     it('Download button is disabled when URL is empty', () => {
       renderPage();
-      expect(screen.getByRole('button', { name: /download/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /download video/i })).toBeDisabled();
     });
 
     it('shows supported platforms text', () => {
       renderPage();
       expect(screen.getByText(/supported platforms/i)).toBeInTheDocument();
+    });
+
+    it('renders the Reset button', () => {
+      renderPage();
+      expect(screen.getByRole('button', { name: /reset form/i })).toBeInTheDocument();
+    });
+
+    it('Reset button is disabled when form is empty and no state', () => {
+      renderPage();
+      expect(screen.getByRole('button', { name: /reset form/i })).toBeDisabled();
     });
   });
 
@@ -77,14 +87,14 @@ describe('VideoDownloaderPage', () => {
   // =========================================================================
 
   describe('URL input interaction', () => {
-    it('enables the Download button once a URL is typed', async () => {
+    it('enables the Download button once a valid URL is typed', async () => {
       const user = userEvent.setup();
       renderPage();
 
       const input = screen.getByLabelText(/video url/i);
       await user.type(input, YOUTUBE_URL);
 
-      expect(screen.getByRole('button', { name: /download/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /download video/i })).toBeEnabled();
     });
 
     it('keeps button disabled when input contains only whitespace', async () => {
@@ -94,7 +104,7 @@ describe('VideoDownloaderPage', () => {
       const input = screen.getByLabelText(/video url/i);
       await user.type(input, '   ');
 
-      expect(screen.getByRole('button', { name: /download/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /download video/i })).toBeDisabled();
     });
   });
 
@@ -120,7 +130,7 @@ describe('VideoDownloaderPage', () => {
 
       const input = screen.getByLabelText(/video url/i);
       await user.type(input, `  ${YOUTUBE_URL}  `);
-      await user.click(screen.getByRole('button', { name: /download/i }));
+      await user.click(screen.getByRole('button', { name: /download video/i }));
 
       await waitFor(() => {
         expect(mockPrepareVideoDownload).toHaveBeenCalledWith(YOUTUBE_URL);
@@ -144,7 +154,7 @@ describe('VideoDownloaderPage', () => {
       renderPage();
 
       await user.type(screen.getByLabelText(/video url/i), YOUTUBE_URL);
-      await user.click(screen.getByRole('button', { name: /download/i }));
+      await user.click(screen.getByRole('button', { name: /download video/i }));
 
       await waitFor(() => {
         expect(screen.getByText(/awesome clip\.mp4/i)).toBeInTheDocument();
@@ -166,7 +176,7 @@ describe('VideoDownloaderPage', () => {
       renderPage();
 
       await user.type(screen.getByLabelText(/video url/i), 'https://evil.com/foo');
-      await user.click(screen.getByRole('button', { name: /download/i }));
+      await user.click(screen.getByRole('button', { name: /download video/i }));
 
       await waitFor(() => {
         expect(
@@ -190,7 +200,7 @@ describe('VideoDownloaderPage', () => {
       renderPage();
 
       await user.type(screen.getByLabelText(/video url/i), YOUTUBE_URL);
-      await user.click(screen.getByRole('button', { name: /download/i }));
+      await user.click(screen.getByRole('button', { name: /download video/i }));
 
       await waitFor(() => {
         expect(
@@ -208,7 +218,7 @@ describe('VideoDownloaderPage', () => {
       renderPage();
 
       await user.type(screen.getByLabelText(/video url/i), YOUTUBE_URL);
-      await user.click(screen.getByRole('button', { name: /download/i }));
+      await user.click(screen.getByRole('button', { name: /download video/i }));
 
       await waitFor(() => {
         expect(
@@ -271,7 +281,7 @@ describe('VideoDownloaderPage', () => {
       renderPage();
 
       await user.type(screen.getByLabelText(/video url/i), YOUTUBE_URL);
-      await user.click(screen.getByRole('button', { name: /download/i }));
+      await user.click(screen.getByRole('button', { name: /download video/i }));
 
       // While the promise is pending, button should be disabled and show a spinner
       await waitFor(() => {
@@ -284,6 +294,255 @@ describe('VideoDownloaderPage', () => {
       // Finish the request
       mockGetVideoStreamUrl.mockReturnValue('/api/video/stream?token=x');
       resolveDownload({ token: 'x', filename: 'v.mp4' });
+    });
+  });
+
+  // =========================================================================
+  // 8. Inline URL validation
+  // =========================================================================
+
+  describe('Inline URL validation', () => {
+    it('shows helper text and disables Download when input is not a valid URL', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      const input = screen.getByLabelText(/video url/i);
+      await user.type(input, 'not a url');
+
+      expect(screen.getByText(/enter a valid http\(s\) url/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /download video/i })).toBeDisabled();
+    });
+
+    it('shows helper text and disables Download for an ftp:// URL', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      const input = screen.getByLabelText(/video url/i);
+      await user.type(input, 'ftp://example.com/video.mp4');
+
+      expect(screen.getByText(/enter a valid http\(s\) url/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /download video/i })).toBeDisabled();
+    });
+
+    it('clears the error and enables Download when a valid https:// URL is entered', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      const input = screen.getByLabelText(/video url/i);
+      await user.type(input, 'not a url');
+
+      // Error should be showing
+      expect(screen.getByText(/enter a valid http\(s\) url/i)).toBeInTheDocument();
+
+      // Clear and type a valid URL
+      await user.clear(input);
+      await user.type(input, YOUTUBE_URL);
+
+      expect(screen.queryByText(/enter a valid http\(s\) url/i)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /download video/i })).toBeEnabled();
+    });
+
+    it('shows no error when input is empty', async () => {
+      renderPage();
+      expect(screen.queryByText(/enter a valid http\(s\) url/i)).not.toBeInTheDocument();
+    });
+  });
+
+  // =========================================================================
+  // 9. Auto-reset after successful download
+  // =========================================================================
+
+  describe('Auto-reset after success', () => {
+    it('clears input and success state after 10 seconds following a successful download', async () => {
+      // Use fake timers but configure them to also advance async microtasks
+      vi.useFakeTimers();
+
+      // Resolve immediately so the async path completes synchronously
+      let resolveApi!: (v: { token: string; filename: string; sizeBytes: number }) => void;
+      const apiPromise = new Promise<{ token: string; filename: string; sizeBytes: number }>(
+        (r) => { resolveApi = r; },
+      );
+      mockPrepareVideoDownload.mockReturnValue(apiPromise);
+      mockGetVideoStreamUrl.mockReturnValue('/api/video/download/stream?token=auto-tok');
+
+      renderPage();
+
+      const input = screen.getByLabelText(/video url/i);
+      fireEvent.change(input, { target: { value: YOUTUBE_URL } });
+      fireEvent.click(screen.getByRole('button', { name: /download video/i }));
+
+      // Resolve the API call and flush microtasks inside act
+      await act(async () => {
+        resolveApi({ token: 'auto-tok', filename: 'Auto Reset Video.mp4', sizeBytes: 1000 });
+      });
+
+      // Success alert should now be visible (real DOM check, no timer needed)
+      expect(screen.getByText(/auto reset video\.mp4/i)).toBeInTheDocument();
+
+      // Advance fake clock by 10 seconds to trigger the auto-reset setTimeout
+      await act(async () => {
+        vi.advanceTimersByTime(10_000);
+      });
+
+      // Input should be cleared and success alert should be gone
+      expect(screen.queryByText(/auto reset video\.mp4/i)).not.toBeInTheDocument();
+      expect((screen.getByLabelText(/video url/i) as HTMLInputElement).value).toBe('');
+
+      vi.useRealTimers();
+    });
+  });
+
+  // =========================================================================
+  // 10. Manual Reset button
+  // =========================================================================
+
+  describe('Manual Reset button', () => {
+    it('clears the input, success state, and cancels auto-reset when Reset is clicked', async () => {
+      vi.useFakeTimers();
+
+      let resolveApi!: (v: { token: string; filename: string; sizeBytes: number }) => void;
+      const apiPromise = new Promise<{ token: string; filename: string; sizeBytes: number }>(
+        (r) => { resolveApi = r; },
+      );
+      mockPrepareVideoDownload.mockReturnValue(apiPromise);
+      mockGetVideoStreamUrl.mockReturnValue('/api/video/download/stream?token=reset-tok');
+
+      renderPage();
+
+      const input = screen.getByLabelText(/video url/i);
+      fireEvent.change(input, { target: { value: YOUTUBE_URL } });
+      fireEvent.click(screen.getByRole('button', { name: /download video/i }));
+
+      // Resolve API and flush
+      await act(async () => {
+        resolveApi({ token: 'reset-tok', filename: 'Reset Test Video.mp4', sizeBytes: 1000 });
+      });
+
+      // Success alert visible
+      expect(screen.getByText(/reset test video\.mp4/i)).toBeInTheDocument();
+
+      // Click Reset — this should cancel the pending auto-reset timer
+      fireEvent.click(screen.getByRole('button', { name: /reset form/i }));
+
+      // Input cleared, success gone immediately
+      expect((screen.getByLabelText(/video url/i) as HTMLInputElement).value).toBe('');
+      expect(screen.queryByText(/reset test video\.mp4/i)).not.toBeInTheDocument();
+
+      // Advancing the timer should NOT re-trigger a reset (it was cancelled)
+      await act(async () => {
+        vi.advanceTimersByTime(10_000);
+      });
+
+      // Still empty, still no success
+      expect(screen.queryByText(/reset test video\.mp4/i)).not.toBeInTheDocument();
+      expect((screen.getByLabelText(/video url/i) as HTMLInputElement).value).toBe('');
+
+      vi.useRealTimers();
+    });
+
+    it('Reset button is enabled when there is an error message', async () => {
+      const user = userEvent.setup();
+      mockPrepareVideoDownload.mockRejectedValue(
+        new ApiError('Something went wrong.', 500),
+      );
+
+      renderPage();
+
+      await user.type(screen.getByLabelText(/video url/i), YOUTUBE_URL);
+      await user.click(screen.getByRole('button', { name: /download video/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
+      });
+
+      // After error, Reset should be enabled (input has content)
+      expect(screen.getByRole('button', { name: /reset form/i })).toBeEnabled();
+    });
+  });
+
+  // =========================================================================
+  // 11. Paste button
+  // =========================================================================
+
+  describe('Paste button', () => {
+    let readTextSpy: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      // Use vi.fn() so Vitest recognises it as a spy
+      readTextSpy = vi.fn().mockResolvedValue('https://youtu.be/abc');
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { readText: readTextSpy },
+        configurable: true,
+        writable: true,
+      });
+    });
+
+    afterEach(() => {
+      // Restore clipboard to undefined to clean up between tests
+      Object.defineProperty(navigator, 'clipboard', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+    });
+
+    it('renders the Paste button when clipboard API is available', () => {
+      renderPage();
+      expect(screen.getByRole('button', { name: /paste from clipboard/i })).toBeInTheDocument();
+    });
+
+    it('clicking Paste calls clipboard.readText and populates the input', async () => {
+      renderPage();
+
+      const pasteBtn = screen.getByRole('button', { name: /paste from clipboard/i });
+      // fireEvent.click is more reliable for icon buttons inside adornments in jsdom
+      fireEvent.click(pasteBtn);
+
+      await waitFor(() => {
+        expect(readTextSpy).toHaveBeenCalled();
+        expect((screen.getByLabelText(/video url/i) as HTMLInputElement).value).toBe(
+          'https://youtu.be/abc',
+        );
+      });
+    });
+
+    it('shows a warning Snackbar when clipboard.readText rejects', async () => {
+      const user = userEvent.setup();
+      // Override to reject
+      const failSpy = vi.fn().mockRejectedValue(new Error('Permission denied'));
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { readText: failSpy },
+        configurable: true,
+        writable: true,
+      });
+
+      renderPage();
+
+      const pasteBtn = screen.getByRole('button', { name: /paste from clipboard/i });
+      await user.click(pasteBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(/could not read clipboard/i)).toBeInTheDocument();
+      });
+    });
+
+    it('shows a warning Snackbar when clipboard.readText returns empty string', async () => {
+      const user = userEvent.setup();
+      const emptySpy = vi.fn().mockResolvedValue('');
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { readText: emptySpy },
+        configurable: true,
+        writable: true,
+      });
+
+      renderPage();
+
+      const pasteBtn = screen.getByRole('button', { name: /paste from clipboard/i });
+      await user.click(pasteBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(/could not read clipboard/i)).toBeInTheDocument();
+      });
     });
   });
 });
