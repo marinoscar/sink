@@ -317,6 +317,7 @@ erDiagram
 | `allowlist:write` | Add/remove emails from allowlist | ✅ | ❌ | ❌ |
 | `user_settings:read` | View own user settings | ✅ | ✅ | ✅ |
 | `user_settings:write` | Modify own user settings | ✅ | ✅ | ✅ |
+| `video:download` | Download videos from supported platforms | ✅ | ✅ | ❌ |
 
 **Role Descriptions:**
 - **Admin**: Full system access - manage users, roles, and all settings
@@ -1272,7 +1273,36 @@ cp .env.example .env
 
 ---
 
-## 9. Attack Mitigation Matrix
+## 9. Video Downloader Security
+
+### Shell-out Safety
+
+The video downloader invokes `yt-dlp` via `child_process.spawn` with an explicit argument array — never via `exec` or a shell string. This eliminates shell injection at the OS level. An additional `--` separator is placed before the user-supplied URL in the argument list, which blocks yt-dlp from interpreting a leading-dash URL (e.g., `--some-flag`) as a command-line flag even if it passed URL validation.
+
+Before yt-dlp is invoked, the URL is parsed with the standard `URL` constructor and the hostname is matched against a strict regex allowlist. Only `http` and `https` schemes are accepted; `file://`, `ftp://`, and other schemes are rejected immediately. If the hostname does not match one of the five supported platforms, a `400 Bad Request` is returned before any subprocess is spawned.
+
+### Signed-Token Rationale
+
+The download flow uses two calls (`POST /prepare` then `GET /stream?token=...`) for the following reasons:
+
+1. **Browser downloads cannot send Authorization headers.** Native `<a download>` navigation and `window.location` assignments carry no custom headers. A separate, self-contained credential is required.
+2. **`fetch()` + `Blob` would buffer the entire video in JS memory.** Videos can be several hundred megabytes; buffering them client-side is not viable.
+3. **No second yt-dlp call at stream time.** The resolved upstream URL is embedded in the JWT payload. The stream endpoint only verifies the token and opens an HTTP connection to the embedded URL — no subprocess is spawned.
+
+Tokens are standard JWTs signed with `JWT_SECRET` (the same secret used for access tokens), audience claim set to `video-download`, and a 120-second TTL. Each token carries a `jti` (JWT ID) UUID. On the first call to `/stream`, the `jti` is recorded in an in-memory map keyed to the token's expiry timestamp; any subsequent attempt to use the same token is rejected with `401`. The map is lazily evicted on each access and also purged by a background interval every five minutes.
+
+Because the stream endpoint is public (no JWT guard), it does not have access to a user identity and cannot write a meaningful audit event. The `POST /prepare` call writes an `audit_event` row (`action: 'video.download.prepare'`, `targetType: 'video'`, `targetId: <hostname>`, `meta: { url, title, ext, filesize }`) immediately after yt-dlp resolves the video. Operators can correlate a stream request with a prepare event by matching timing; the original URL and title are available in the prepare audit record.
+
+### Operational Notes
+
+- **Keep yt-dlp current.** Video platforms regularly update their APIs and yt-dlp releases corresponding fixes. Pinning yt-dlp to a specific version in the Dockerfile is a known follow-up task; in the meantime, the base image installs the latest release via `pip3 install yt-dlp`.
+- **yt-dlp stderr is logged at `warn` level.** The full stderr output from failed yt-dlp invocations is written to the application log so operators can diagnose platform-specific failures. Only a sanitized, single-line excerpt (HTML/shell special characters stripped, truncated to 200 characters) is returned to the caller in the 422 response body.
+- **Geo-blocked and private videos surface as 422.** The service scans stderr for keywords (`private`, `unavailable`, `geo`, `removed`, `not available`) and maps matches to `UnprocessableEntityException`. All other non-zero exits map to `502 Bad Gateway`.
+- **Stream timeout.** The upstream HTTP connection used for proxying has a hard five-minute cap (`streamTimeoutMs: 300_000`). Client disconnects abort the upstream socket immediately to free resources.
+
+---
+
+## 10. Attack Mitigation Matrix
 
 | Attack Vector | Mitigation Strategy | Implementation |
 |--------------|---------------------|----------------|
