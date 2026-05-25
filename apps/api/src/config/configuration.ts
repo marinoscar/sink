@@ -90,6 +90,7 @@ export default () => {
     ytDlpTimeoutMs: parseInt(process.env.VIDEO_YTDLP_TIMEOUT_MS || '15000', 10),
     streamTimeoutMs: parseInt(process.env.VIDEO_STREAM_TIMEOUT_MS || '300000', 10),
     tokenTtlSeconds: parseInt(process.env.VIDEO_TOKEN_TTL_SECONDS || '120', 10),
+    youtubeCookiesPath: process.env.YOUTUBE_COOKIES_PATH ?? '/run/secrets/youtube-cookies.txt',
   },
 
   // LLM (OpenAI-compatible)

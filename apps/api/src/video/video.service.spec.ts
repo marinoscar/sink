@@ -88,6 +88,15 @@ jest.mock('node:child_process', () => ({
   spawn: (...args: unknown[]) => spawnMock(...args),
 }));
 
+// fs mock: existsSync is controlled per-test via existsSyncMock.mockReturnValue(...)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const existsSyncMock = jest.fn((_path?: unknown): boolean => false);
+
+jest.mock('node:fs', () => ({
+  ...jest.requireActual('node:fs'),
+  existsSync: (path: unknown) => existsSyncMock(path),
+}));
+
 // ---------------------------------------------------------------------------
 // Regular imports (after the mock declaration)
 // ---------------------------------------------------------------------------
@@ -138,6 +147,7 @@ async function buildModule(opts: {
     if (key === 'video.tokenTtlSeconds') return tokenTtl;
     if (key === 'video.ytDlpTimeoutMs') return 15_000;
     if (key === 'video.streamTimeoutMs') return 300_000;
+    if (key === 'video.youtubeCookiesPath') return '/run/secrets/youtube-cookies.txt';
     return defaultVal;
   });
 
@@ -267,6 +277,7 @@ describe('VideoService', () => {
                 if (key === 'jwt.secret') return JWT_SECRET;
                 if (key === 'video.tokenTtlSeconds') return 30;
                 if (key === 'video.ytDlpTimeoutMs') return 15_000;
+                if (key === 'video.youtubeCookiesPath') return '/run/secrets/youtube-cookies.txt';
                 return defaultVal;
               }),
             },
@@ -340,6 +351,7 @@ describe('VideoService', () => {
                 if (key === 'jwt.secret') return JWT_SECRET;
                 if (key === 'video.tokenTtlSeconds') return 1; // 1-second TTL
                 if (key === 'video.ytDlpTimeoutMs') return 15_000;
+                if (key === 'video.youtubeCookiesPath') return '/run/secrets/youtube-cookies.txt';
                 return defaultVal;
               }),
             },
@@ -704,6 +716,89 @@ describe('VideoService', () => {
       expect(rawResponse.statusCode).toBe(200); // unchanged
       // end() is called once by pipeline completing — not a second time by error logic
       expect(rawResponse.end).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // =========================================================================
+  // 6. getCookiesArgsForUrl — cookie injection logic
+  // =========================================================================
+
+  describe('getCookiesArgsForUrl (via spawn args)', () => {
+    const COOKIES_PATH = '/run/secrets/youtube-cookies.txt';
+
+    beforeEach(() => {
+      mockJwtSign.mockResolvedValue('signed-token');
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+      existsSyncMock.mockReset();
+      existsSyncMock.mockReturnValue(false);
+    });
+
+    it('should pass --cookies flag for YouTube URL when cookies file exists', async () => {
+      existsSyncMock.mockReturnValue(true);
+
+      spawnMock.mockImplementation(() =>
+        makeFakeProcess({ exitCode: 0, stdout: VALID_YT_JSON, stderr: '' }),
+      );
+
+      await service.prepareDownload('https://www.youtube.com/watch?v=abc', 'user-1');
+
+      const spawnArgs: string[] = spawnMock.mock.calls[0][1];
+      expect(spawnArgs).toContain('--cookies');
+      expect(spawnArgs).toContain(COOKIES_PATH);
+      // --cookies must appear before --
+      expect(spawnArgs.indexOf('--cookies')).toBeLessThan(spawnArgs.indexOf('--'));
+    });
+
+    it('should not pass --cookies flag for YouTube URL when cookies file is missing', async () => {
+      existsSyncMock.mockReturnValue(false);
+
+      spawnMock.mockImplementation(() =>
+        makeFakeProcess({ exitCode: 0, stdout: VALID_YT_JSON, stderr: '' }),
+      );
+
+      await service.prepareDownload('https://www.youtube.com/watch?v=abc', 'user-1');
+
+      const spawnArgs: string[] = spawnMock.mock.calls[0][1];
+      expect(spawnArgs).not.toContain('--cookies');
+    });
+
+    it('should not pass --cookies flag for TikTok even when cookies file exists', async () => {
+      existsSyncMock.mockReturnValue(true);
+
+      spawnMock.mockImplementation(() =>
+        makeFakeProcess({ exitCode: 0, stdout: VALID_YT_JSON, stderr: '' }),
+      );
+
+      await service.prepareDownload('https://www.tiktok.com/@user/video/1', 'user-1');
+
+      const spawnArgs: string[] = spawnMock.mock.calls[0][1];
+      expect(spawnArgs).not.toContain('--cookies');
+      // existsSync should never be called for non-YouTube URLs
+      expect(existsSyncMock).not.toHaveBeenCalled();
+    });
+
+    it('should throw UnprocessableEntityException with cookies message when yt-dlp returns bot-gate stderr', async () => {
+      existsSyncMock.mockReturnValue(false);
+
+      spawnMock.mockImplementation(() =>
+        makeFakeProcess({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'ERROR: Sign in to confirm your age. This video may be inappropriate for some users.',
+        }),
+      );
+
+      const err = await service
+        .prepareDownload('https://www.youtube.com/watch?v=abc', 'user-1')
+        .catch((e) => e);
+
+      expect(err).toBeInstanceOf(UnprocessableEntityException);
+      expect((err as UnprocessableEntityException).message).toContain(
+        'authentication cookies',
+      );
+      expect((err as UnprocessableEntityException).message).toContain(
+        'docs/youtube-cookies.md',
+      );
     });
   });
 });

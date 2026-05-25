@@ -13,6 +13,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import type { ServerResponse } from 'node:http';
+import * as fs from 'node:fs';
 
 // =============================================================================
 // Platform allowlist regexes
@@ -32,6 +33,16 @@ const PLATFORM_ERROR_MESSAGE =
 // Stderr patterns that indicate user-facing errors (private/unavailable video)
 const USER_FACING_STDERR_PATTERN =
   /private|unavailable|geo|removed|not available/i;
+
+// Stderr pattern for YouTube bot-gate (requires authentication cookies)
+const BOT_GATE_STDERR_PATTERN = /Sign in to confirm/i;
+
+// Predicate: is this URL from a YouTube hostname?
+function isYouTubeHostname(hostname: string): boolean {
+  return /^(www\.|m\.|mobile\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)$/.test(
+    hostname.toLowerCase(),
+  );
+}
 
 // =============================================================================
 // Token payload interface
@@ -66,6 +77,32 @@ export class VideoService {
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
   ) {}
+
+  // ===========================================================================
+  // Private cookie helper
+  // ===========================================================================
+
+  /**
+   * Returns `['--cookies', <path>]` when (a) the URL hostname is a YouTube
+   * hostname AND (b) the cookies file exists on disk. Returns `[]` otherwise.
+   *
+   * Existence is checked lazily on every call so the user can drop the file in
+   * without restarting the API container.
+   */
+  private getCookiesArgsForUrl(url: URL): string[] {
+    if (!isYouTubeHostname(url.hostname)) {
+      return [];
+    }
+    const cookiesPath = this.configService.get<string>(
+      'video.youtubeCookiesPath',
+      '/run/secrets/youtube-cookies.txt',
+    );
+    if (!fs.existsSync(cookiesPath)) {
+      return [];
+    }
+    this.logger.log(`Using YouTube cookies for hostname=${url.hostname}`);
+    return ['--cookies', cookiesPath];
+  }
 
   // ===========================================================================
   // Public API
@@ -163,8 +200,9 @@ export class VideoService {
     // to be passed to yt-dlp (token could have been minted before the
     // allowlist changed, or the URL may have been tampered with at the DB
     // level in some future scenario).
-    this.validatePlatform(originalUrl);
+    const parsedUrl = this.validatePlatform(originalUrl);
 
+    const cookieArgs = this.getCookiesArgsForUrl(parsedUrl);
     const encodedFilename = encodeRfc5987(filename);
 
     rawResponse.setHeader('Content-Type', 'video/mp4');
@@ -183,6 +221,7 @@ export class VideoService {
         '--no-warnings',
         '--no-progress',
         '--quiet',
+        ...cookieArgs,
         '--',
         originalUrl,
       ],
@@ -330,6 +369,9 @@ export class VideoService {
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
 
+      const parsedUrl = new URL(userUrl);
+      const cookieArgs = this.getCookiesArgsForUrl(parsedUrl);
+
       const proc = spawn(
         'yt-dlp',
         [
@@ -338,6 +380,7 @@ export class VideoService {
           '--no-warnings',
           '-f',
           'best[ext=mp4]/best',
+          ...cookieArgs,
           '--',
           userUrl,
         ],
@@ -359,6 +402,15 @@ export class VideoService {
         if (code !== 0) {
           if (stderr) {
             this.logger.warn(`yt-dlp stderr: ${stderr}`);
+          }
+
+          if (BOT_GATE_STDERR_PATTERN.test(stderr)) {
+            reject(
+              new UnprocessableEntityException(
+                'This YouTube video requires authentication cookies. See docs/youtube-cookies.md for setup.',
+              ),
+            );
+            return;
           }
 
           const match = USER_FACING_STDERR_PATTERN.exec(stderr);

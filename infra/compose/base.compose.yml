@@ -70,6 +70,8 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-enterprise-app-api}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./secrets:/run/secrets:ro
     networks:
       - app-network
       - devnet
