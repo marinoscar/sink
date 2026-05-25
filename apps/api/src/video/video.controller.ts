@@ -101,7 +101,9 @@ export class VideoController {
 
     this.logger.log(`Streaming video filename=${filename}`);
 
-    // Stream directly to the raw Node.js ServerResponse, bypassing Fastify serialization
+    // Hijack the Fastify reply so it won't try to finalize the response,
+    // then stream directly to the raw Node.js ServerResponse.
+    reply.hijack();
     await this.videoService.streamToClient(upstreamUrl, filename, reply.raw);
   }
 }
