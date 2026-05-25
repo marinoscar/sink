@@ -84,26 +84,26 @@ export class VideoController {
   @ApiOperation({
     summary: 'Stream a video download (public, token-gated)',
     description:
-      'Validates the signed single-use token from /prepare, then proxies the upstream ' +
-      'video bytes directly to the client with Content-Disposition: attachment.',
+      'Validates the signed single-use token from /prepare, then runs yt-dlp internally ' +
+      'and pipes the resulting video bytes directly to the client with Content-Disposition: attachment.',
   })
   @ApiQuery({ name: 'token', type: String, description: 'Signed download token from /prepare' })
   @ApiResponse({ status: 200, description: 'Video stream' })
   @ApiResponse({ status: 401, description: 'Invalid, expired, or already-used token' })
-  @ApiResponse({ status: 502, description: 'Upstream connection failed' })
+  @ApiResponse({ status: 502, description: 'yt-dlp failed to download the video' })
   async streamDownload(
     @Query('token') token: string,
     @Res() reply: FastifyReply,
   ): Promise<void> {
     this.logger.log('Stream video download request');
 
-    const { upstreamUrl, filename, headers } = await this.videoService.consumeToken(token);
+    const { originalUrl, filename } = await this.videoService.consumeToken(token);
 
-    this.logger.log(`Streaming video filename=${filename}`);
+    this.logger.log(`Streaming video filename=${filename} originalUrl=${originalUrl}`);
 
     // Hijack the Fastify reply so it won't try to finalize the response,
     // then stream directly to the raw Node.js ServerResponse.
     reply.hijack();
-    await this.videoService.streamToClient(upstreamUrl, filename, reply.raw, headers);
+    await this.videoService.streamToClient(originalUrl, filename, reply.raw);
   }
 }

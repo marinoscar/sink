@@ -12,26 +12,69 @@
 // ---------------------------------------------------------------------------
 
 import { EventEmitter } from 'node:events';
+import { Readable } from 'node:stream';
 
 /**
  * Build a fake ChildProcess-like object whose events fire on the next tick so
  * callers can attach listeners first.
+ *
+ * stdout is a real `Readable` stream so that `pipeline(proc.stdout, ...)` works
+ * correctly in streamToClient tests. For the prepare-phase tests (resolveWithYtDlp),
+ * the service manually attaches `.on('data')` / `.on('close')` listeners which also
+ * work on Readable.
+ *
+ * Pass `streamChunks` to push video bytes through the Readable before ending it.
+ * Pass `stdout` (string) to push it as a single data chunk (for JSON-parsing tests).
  */
 function makeFakeProcess(opts: {
   exitCode: number;
   stdout: string;
   stderr: string;
-}): EventEmitter & { stdout: EventEmitter; stderr: EventEmitter } {
+  kill?: () => void;
+  streamChunks?: Buffer[];
+}): EventEmitter & {
+  stdout: Readable;
+  stderr: EventEmitter;
+  kill: (signal?: string) => boolean;
+  killed: boolean;
+  stdio: unknown[];
+} {
   const proc = new EventEmitter() as EventEmitter & {
-    stdout: EventEmitter;
+    stdout: Readable;
     stderr: EventEmitter;
+    kill: (signal?: string) => boolean;
+    killed: boolean;
+    stdio: unknown[];
   };
-  proc.stdout = new EventEmitter();
+
+  // Build a real Readable that will push the configured chunks then end.
+  const stdoutReadable = new Readable({
+    read() {
+      // Chunks are pushed asynchronously below via setImmediate.
+    },
+  });
+  proc.stdout = stdoutReadable;
   proc.stderr = new EventEmitter();
+  proc.killed = false;
+  proc.stdio = [null, proc.stdout, proc.stderr];
+  proc.kill = (signal?: string) => {
+    proc.killed = true;
+    opts.kill?.();
+    stdoutReadable.destroy();
+    setImmediate(() => proc.emit('close', signal === 'SIGTERM' ? 143 : 137));
+    return true;
+  };
 
   setImmediate(() => {
-    if (opts.stdout) proc.stdout.emit('data', Buffer.from(opts.stdout));
+    if (opts.streamChunks) {
+      for (const chunk of opts.streamChunks) {
+        stdoutReadable.push(chunk);
+      }
+    } else if (opts.stdout) {
+      stdoutReadable.push(Buffer.from(opts.stdout));
+    }
     if (opts.stderr) proc.stderr.emit('data', Buffer.from(opts.stderr));
+    stdoutReadable.push(null); // EOF
     proc.emit('close', opts.exitCode);
   });
 
@@ -234,7 +277,7 @@ describe('VideoService', () => {
       realService = module.get<VideoService>(VideoService);
     });
 
-    it('should verify a freshly signed token and return upstream URL and filename', async () => {
+    it('should verify a freshly signed token and return original URL and filename', async () => {
       spawnMock.mockImplementation(() =>
         makeFakeProcess({
           exitCode: 0,
@@ -243,16 +286,17 @@ describe('VideoService', () => {
         }),
       );
 
-      const { token } = await realService.prepareDownload(
-        'https://www.youtube.com/watch?v=abc',
-        'user-rt',
-      );
+      const originalInput = 'https://www.youtube.com/watch?v=abc';
+      const { token } = await realService.prepareDownload(originalInput, 'user-rt');
 
       const result = await realService.consumeToken(token);
       expect(result).toMatchObject({
-        upstreamUrl: 'https://cdn.example.com/v.mp4',
+        originalUrl: originalInput,
         filename: 'RT Video.mp4',
       });
+      // upstream CDN URL should NOT be stored in the token
+      expect(result).not.toHaveProperty('upstreamUrl');
+      expect(result).not.toHaveProperty('headers');
     });
 
     it('should throw UnauthorizedException for a tampered token', async () => {
@@ -335,16 +379,14 @@ describe('VideoService', () => {
         }),
       );
 
-      const { token } = await realService.prepareDownload(
-        'https://www.youtube.com/watch?v=abc',
-        'user-replay',
-      );
+      const originalInput = 'https://www.youtube.com/watch?v=abc';
+      const { token } = await realService.prepareDownload(originalInput, 'user-replay');
 
       const first = await realService.consumeToken(token);
       const second = await realService.consumeToken(token);
 
-      expect(first).toMatchObject({ upstreamUrl: 'https://cdn.example.com/v.mp4', filename: 'Replay Video.mp4' });
-      expect(second).toMatchObject({ upstreamUrl: 'https://cdn.example.com/v.mp4', filename: 'Replay Video.mp4' });
+      expect(first).toMatchObject({ originalUrl: originalInput, filename: 'Replay Video.mp4' });
+      expect(second).toMatchObject({ originalUrl: originalInput, filename: 'Replay Video.mp4' });
     });
   });
 
@@ -507,6 +549,161 @@ describe('VideoService', () => {
       await expect(
         service.prepareDownload('https://www.youtube.com/watch?v=audit', 'user-audit2'),
       ).resolves.toBeDefined();
+    });
+  });
+
+  // =========================================================================
+  // 5. streamToClient — yt-dlp subprocess smoke tests
+  // =========================================================================
+
+  describe('streamToClient', () => {
+    /**
+     * Build a fake ServerResponse backed by a real PassThrough stream so that
+     * `pipeline(proc.stdout, rawResponse)` works correctly (pipeline requires a
+     * proper Writable). We wrap the PassThrough and spy on key methods.
+     */
+    function makeRawResponse() {
+      const { PassThrough } = require('node:stream') as typeof import('node:stream');
+      const pt = new PassThrough();
+
+      // Track whether destroy() was called on the PassThrough.
+      const originalDestroy = pt.destroy.bind(pt);
+      const destroyMock = jest.fn((...args: unknown[]) => {
+        (pt as any)._destroyCalled = true;
+        originalDestroy(...(args as Parameters<typeof originalDestroy>));
+      });
+      pt.destroy = destroyMock as unknown as typeof pt.destroy;
+
+      // Overlay the extra properties that ServerResponse has but PassThrough lacks.
+      const overlay = pt as typeof pt & {
+        statusCode: number;
+        headersSent: boolean;
+        headers: Record<string, unknown>;
+        setHeader: jest.Mock;
+        end: jest.Mock;
+        destroy: jest.Mock;
+        _destroyCalled: boolean;
+      };
+
+      overlay.statusCode = 200;
+      overlay.headersSent = false;
+      overlay._destroyCalled = false;
+      overlay.headers = {};
+
+      overlay.setHeader = jest.fn((name: string, value: unknown) => {
+        overlay.headers[name] = value;
+      });
+
+      // Override end to track writableEnded (PassThrough already sets it, but we
+      // want to spy on the call and be sure it's being called by streamToClient).
+      const originalEnd = pt.end.bind(pt);
+      overlay.end = jest.fn((...args: unknown[]) => {
+        originalEnd(...(args as Parameters<typeof originalEnd>));
+      }) as unknown as jest.Mock;
+
+      return overlay;
+    }
+
+    it('should set response headers before piping', async () => {
+      const videoData = Buffer.from('fake-video-bytes');
+      spawnMock.mockImplementation(() =>
+        makeFakeProcess({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          streamChunks: [videoData],
+        }),
+      );
+
+      const rawResponse = makeRawResponse();
+      await service.streamToClient(
+        'https://www.youtube.com/watch?v=abc',
+        'My Video.mp4',
+        rawResponse as any,
+      );
+
+      expect(rawResponse.setHeader).toHaveBeenCalledWith('Content-Type', 'video/mp4');
+      expect(rawResponse.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
+      expect(rawResponse.setHeader).toHaveBeenCalledWith(
+        'Content-Disposition',
+        expect.stringContaining('attachment'),
+      );
+    });
+
+    it('should spawn yt-dlp with the correct args including -- separator', async () => {
+      const videoData = Buffer.from('bytes');
+      spawnMock.mockImplementation(() =>
+        makeFakeProcess({ exitCode: 0, stdout: '', stderr: '', streamChunks: [videoData] }),
+      );
+
+      const rawResponse = makeRawResponse();
+      const url = 'https://www.youtube.com/watch?v=test';
+      await service.streamToClient(url, 'test.mp4', rawResponse as any);
+
+      expect(spawnMock).toHaveBeenCalledWith(
+        'yt-dlp',
+        expect.arrayContaining(['--', url]),
+        expect.objectContaining({ stdio: ['ignore', 'pipe', 'pipe'] }),
+      );
+    });
+
+    it('should reject unsupported platform URLs (defense-in-depth)', async () => {
+      const rawResponse = makeRawResponse();
+      await expect(
+        service.streamToClient('https://evil.com/video', 'bad.mp4', rawResponse as any),
+      ).rejects.toThrow();
+      // spawn should never have been called for the stream
+      expect(spawnMock).not.toHaveBeenCalled();
+    });
+
+    it('should set status 502 and end response when yt-dlp exits non-zero with no bytes sent', async () => {
+      spawnMock.mockImplementation(() =>
+        makeFakeProcess({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'ERROR: network failure',
+          streamChunks: [], // no bytes emitted
+        }),
+      );
+
+      const rawResponse = makeRawResponse();
+      await service.streamToClient(
+        'https://www.youtube.com/watch?v=fail',
+        'fail.mp4',
+        rawResponse as any,
+      );
+
+      // 502 must be set when no bytes have been sent
+      expect(rawResponse.statusCode).toBe(502);
+      expect(rawResponse.end).toHaveBeenCalled();
+    });
+
+    it('should not set 502 when yt-dlp exits non-zero after bytes have been piped', async () => {
+      // When bytes are emitted, pipeline writes them and then ends the response
+      // cleanly. If yt-dlp then exits non-zero, the response is already finalized —
+      // we cannot change the status code. The service must NOT call end() a second
+      // time and must NOT set statusCode = 502.
+      const videoChunk = Buffer.from('partial-video-data');
+      spawnMock.mockImplementation(() =>
+        makeFakeProcess({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'ERROR: mid-stream failure',
+          streamChunks: [videoChunk], // bytes ARE emitted before exit
+        }),
+      );
+
+      const rawResponse = makeRawResponse();
+      await service.streamToClient(
+        'https://www.youtube.com/watch?v=partial',
+        'partial.mp4',
+        rawResponse as any,
+      );
+
+      // Status must NOT be 502 (bytes were already sent)
+      expect(rawResponse.statusCode).toBe(200); // unchanged
+      // end() is called once by pipeline completing — not a second time by error logic
+      expect(rawResponse.end).toHaveBeenCalledTimes(1);
     });
   });
 });

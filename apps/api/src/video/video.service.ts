@@ -11,8 +11,6 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import * as http from 'node:http';
-import * as https from 'node:https';
 import { pipeline } from 'node:stream/promises';
 import type { ServerResponse } from 'node:http';
 
@@ -42,11 +40,9 @@ const USER_FACING_STDERR_PATTERN =
 interface VideoDownloadTokenPayload {
   sub: string;
   aud: string;
-  upstream: string;
-  filename: string;
   original: string;
+  filename: string;
   jti: string;
-  headers?: Record<string, string>;
   exp?: number;
 }
 
@@ -59,7 +55,6 @@ interface YtDlpResult {
   ext: string;
   title: string;
   filesize?: number;
-  headers?: Record<string, string>;
 }
 
 @Injectable()
@@ -100,11 +95,9 @@ export class VideoService {
       {
         sub: userId,
         aud: 'video-download',
-        upstream: ytResult.url,
-        filename,
         original: rawUrl,
+        filename,
         jti,
-        headers: ytResult.headers,
       } satisfies Omit<VideoDownloadTokenPayload, 'exp'>,
       {
         expiresIn: ttl,
@@ -123,13 +116,13 @@ export class VideoService {
   }
 
   /**
-   * Verify the signed download token and return the upstream URL and filename.
-   * Replay within the 120-second TTL window is allowed — the user simply
-   * re-downloads the same upstream URL, which is harmless.
+   * Verify the signed download token and return the original URL and filename.
+   * Replay within the 120-second TTL window is allowed — the same yt-dlp
+   * subprocess will be spawned again, which is harmless.
    */
   async consumeToken(
     token: string,
-  ): Promise<{ upstreamUrl: string; filename: string; headers?: Record<string, string> }> {
+  ): Promise<{ originalUrl: string; filename: string }> {
     let payload: VideoDownloadTokenPayload;
     try {
       payload = await this.jwtService.verifyAsync<VideoDownloadTokenPayload>(
@@ -143,133 +136,163 @@ export class VideoService {
       throw new UnauthorizedException('Invalid or expired download token');
     }
 
-    return { upstreamUrl: payload.upstream, filename: payload.filename, headers: payload.headers };
+    return { originalUrl: payload.original, filename: payload.filename };
   }
 
   /**
-   * Open an HTTP/HTTPS stream to upstreamUrl and pipe it to the raw Node
-   * ServerResponse. Sets Content-Type, Content-Length, Content-Disposition,
-   * and Cache-Control. Aborts on client disconnect. Hard 5-minute cap.
-   * Follows up to 5 redirects. Returns 502 to the client if the upstream
-   * responds with an error status.
+   * Spawn yt-dlp to download the video and pipe its stdout directly to the
+   * raw Node ServerResponse. Sets Content-Type, Content-Disposition, and
+   * Cache-Control before writing any bytes. Applies a hard 5-minute cap;
+   * kills yt-dlp on client disconnect.
+   *
+   * If yt-dlp exits non-zero before any bytes have been sent, sets status 502.
+   * If it errors after bytes have started flowing the response is destroyed
+   * (client sees a truncated download — nothing better we can do at that point).
    */
   async streamToClient(
-    upstreamUrl: string,
+    originalUrl: string,
     filename: string,
     rawResponse: ServerResponse,
-    headers?: Record<string, string>,
   ): Promise<void> {
     const streamTimeoutMs = this.configService.get<number>(
       'video.streamTimeoutMs',
       300_000,
     );
 
-    const MAX_REDIRECTS = 5;
+    // Defense-in-depth: re-validate the platform on the URL that is about
+    // to be passed to yt-dlp (token could have been minted before the
+    // allowlist changed, or the URL may have been tampered with at the DB
+    // level in some future scenario).
+    this.validatePlatform(originalUrl);
 
-    const fetchUrl = (url: string, redirectsLeft: number): Promise<void> =>
-      new Promise<void>((resolve, reject) => {
-        const parsedUpstream = new URL(url);
-        const transport = parsedUpstream.protocol === 'https:' ? https : http;
+    const encodedFilename = encodeRfc5987(filename);
 
-        const req = transport.get(url, { headers: headers ?? {} }, (upstreamRes) => {
-          const status = upstreamRes.statusCode ?? 0;
+    rawResponse.setHeader('Content-Type', 'video/mp4');
+    rawResponse.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodedFilename}`,
+    );
+    rawResponse.setHeader('Cache-Control', 'no-store');
 
-          // Handle redirects
-          if (
-            [301, 302, 303, 307, 308].includes(status) &&
-            upstreamRes.headers['location']
-          ) {
-            upstreamRes.resume(); // drain the redirect body
-            if (redirectsLeft <= 0) {
-              this.logger.warn(`Upstream redirect limit exceeded for ${url}`);
-              rawResponse.statusCode = 502;
-              rawResponse.end();
-              resolve();
-              return;
-            }
-            const location = upstreamRes.headers['location'] as string;
-            // Resolve relative redirects against the current URL
-            const nextUrl = new URL(location, url).toString();
-            this.logger.log(
-              `Upstream redirect ${status} -> ${nextUrl} (${redirectsLeft - 1} left)`,
-            );
-            fetchUrl(nextUrl, redirectsLeft - 1).then(resolve).catch(reject);
-            return;
+    const proc = spawn(
+      'yt-dlp',
+      [
+        '-o', '-',
+        '-f', 'best[ext=mp4]/best',
+        '--no-playlist',
+        '--no-warnings',
+        '--no-progress',
+        '--quiet',
+        '--',
+        originalUrl,
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+
+    // Cap stderr buffering at 64 KB to prevent runaway memory usage.
+    const MAX_STDERR_BYTES = 64 * 1024;
+    const stderrChunks: Buffer[] = [];
+    let stderrBytes = 0;
+
+    proc.stderr.on('data', (chunk: Buffer) => {
+      if (stderrBytes < MAX_STDERR_BYTES) {
+        stderrChunks.push(chunk);
+        stderrBytes += chunk.length;
+      }
+    });
+
+    // Track whether any video bytes have been flushed to the client so we
+    // can still set a 502 status if yt-dlp fails before writing anything.
+    let bytesStarted = false;
+    proc.stdout.once('data', () => {
+      bytesStarted = true;
+    });
+
+    // Kill yt-dlp if the client disconnects.
+    let procKilled = false;
+    const killProc = () => {
+      if (!procKilled) {
+        procKilled = true;
+        proc.kill('SIGTERM');
+        setTimeout(() => {
+          if (!proc.killed) {
+            proc.kill('SIGKILL');
           }
+        }, 3000).unref();
+      }
+    };
 
-          // Bail on upstream error responses
-          if (status >= 400) {
-            const bodyChunks: Buffer[] = [];
-            upstreamRes.on('data', (chunk: Buffer) => {
-              if (bodyChunks.reduce((acc, c) => acc + c.length, 0) < 200) {
-                bodyChunks.push(chunk);
-              }
-            });
-            upstreamRes.on('end', () => {
-              const body = Buffer.concat(bodyChunks).toString('utf8').slice(0, 200);
-              this.logger.warn(
-                { upstreamStatus: status, body },
-                `Upstream responded with ${status} for ${url}`,
-              );
-              rawResponse.statusCode = 502;
-              rawResponse.end();
-              resolve();
-            });
-            return;
-          }
+    rawResponse.on('close', killProc);
 
-          const contentType =
-            upstreamRes.headers['content-type'] ?? 'video/mp4';
-          const contentLength = upstreamRes.headers['content-length'];
-          const encodedFilename = encodeRfc5987(filename);
+    // Hard timeout.
+    const timeoutHandle = setTimeout(() => {
+      this.logger.warn({ filename }, 'yt-dlp stream timeout — killing process');
+      killProc();
+      if (!rawResponse.writableEnded) {
+        rawResponse.destroy();
+      }
+    }, streamTimeoutMs);
+    timeoutHandle.unref();
 
-          rawResponse.setHeader('Content-Type', contentType);
-          rawResponse.setHeader(
-            'Content-Disposition',
-            `attachment; filename*=UTF-8''${encodedFilename}`,
-          );
-          rawResponse.setHeader('Cache-Control', 'no-store');
-          if (contentLength) {
-            rawResponse.setHeader('Content-Length', contentLength);
-          }
+    // Wait for yt-dlp to exit (the pipeline resolves or rejects first).
+    const exitPromise = new Promise<number | null>((resolve) => {
+      proc.on('close', (code) => resolve(code));
+    });
 
-          // Abort upstream on client disconnect
-          rawResponse.on('close', () => {
-            req.destroy();
-          });
-
-          pipeline(upstreamRes, rawResponse)
-            .then(resolve)
-            .catch((err) => {
-              // Ignore premature close errors (client disconnected)
-              if (
-                err?.code === 'ERR_STREAM_PREMATURE_CLOSE' ||
-                err?.code === 'ECONNRESET' ||
-                err?.code === 'EPIPE'
-              ) {
-                resolve();
-              } else {
-                reject(err);
-              }
-            });
-        });
-
-        req.on('error', reject);
-
-        // Hard 5-minute cap
-        req.setTimeout(streamTimeoutMs, () => {
-          req.destroy(new Error('Upstream stream timeout'));
-        });
-      });
-
-    if (headers && Object.keys(headers).length > 0) {
-      this.logger.log(
-        { headerKeys: Object.keys(headers) },
-        'Forwarding upstream headers on video stream',
-      );
+    try {
+      await pipeline(proc.stdout, rawResponse);
+    } catch (err) {
+      // Premature close, EPIPE, ECONNRESET — all mean the client disconnected.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (
+        code === 'ERR_STREAM_PREMATURE_CLOSE' ||
+        code === 'ECONNRESET' ||
+        code === 'EPIPE'
+      ) {
+        killProc();
+      } else if (!bytesStarted) {
+        // pipeline errored before any bytes — send 502 if we still can.
+        if (!rawResponse.headersSent) {
+          rawResponse.statusCode = 502;
+        }
+        if (!rawResponse.writableEnded) {
+          rawResponse.end('Video stream error');
+        }
+      } else {
+        this.logger.warn(
+          { err, filename },
+          'yt-dlp stream error after bytes started — destroying response',
+        );
+        rawResponse.destroy();
+      }
+      return;
+    } finally {
+      clearTimeout(timeoutHandle);
+      rawResponse.removeListener('close', killProc);
     }
 
-    await fetchUrl(upstreamUrl, MAX_REDIRECTS);
+    // Pipeline completed — check yt-dlp's exit code.
+    const exitCode = await exitPromise;
+    if (exitCode !== 0) {
+      const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
+      if (stderr) {
+        this.logger.warn({ exitCode, stderr, filename }, 'yt-dlp exited non-zero during stream');
+      }
+
+      if (!bytesStarted) {
+        if (!rawResponse.headersSent) {
+          rawResponse.statusCode = 502;
+        }
+        if (!rawResponse.writableEnded) {
+          rawResponse.end('Video source returned an error');
+        }
+      } else {
+        // Bytes already sent — can't change status, just destroy.
+        if (!rawResponse.writableEnded) {
+          rawResponse.destroy();
+        }
+      }
+    }
   }
 
   // ===========================================================================
@@ -372,23 +395,6 @@ export class VideoService {
           return;
         }
 
-        // Extract http_headers defensively: only include if it's a non-empty
-        // object whose values are all strings.
-        const rawHeaders = info['http_headers'];
-        let httpHeaders: Record<string, string> | undefined;
-        if (
-          rawHeaders !== null &&
-          typeof rawHeaders === 'object' &&
-          !Array.isArray(rawHeaders)
-        ) {
-          const entries = Object.entries(rawHeaders as Record<string, unknown>).filter(
-            ([, v]) => typeof v === 'string',
-          ) as [string, string][];
-          if (entries.length > 0) {
-            httpHeaders = Object.fromEntries(entries);
-          }
-        }
-
         resolve({
           url,
           ext: (info['ext'] as string | undefined) ?? 'mp4',
@@ -396,7 +402,6 @@ export class VideoService {
           filesize:
             (info['filesize'] as number | undefined) ??
             (info['filesize_approx'] as number | undefined),
-          headers: httpHeaders,
         });
       });
     });

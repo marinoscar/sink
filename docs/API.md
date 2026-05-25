@@ -1306,7 +1306,7 @@ The storage system provides file upload and management capabilities with support
 
 ### Video Downloader
 
-Two-call pattern: `prepare` resolves the upstream URL and mints a short-lived token; `stream` consumes that token and proxies the bytes to the browser. This design avoids buffering multi-hundred-MB files in JS memory and works with native browser `<a download>` navigation.
+Two-call pattern: `prepare` resolves video metadata via yt-dlp and mints a short-lived token; `stream` consumes that token, runs yt-dlp again internally, and pipes the resulting video bytes directly to the browser. This design avoids buffering multi-hundred-MB files in JS memory and works with native browser `<a download>` navigation.
 
 **Requires `video:download` permission** (granted to Admin and Contributor by default; Viewer cannot download videos).
 
@@ -1357,7 +1357,7 @@ Any other hostname returns 400.
 **Token properties:**
 - JWT signed with `JWT_SECRET`, audience `video-download`
 - Expires in 120 seconds
-- Embeds the resolved upstream URL — no second yt-dlp call occurs at stream time
+- Embeds the original user-supplied URL; yt-dlp is invoked a second time at stream time to perform the actual download
 
 **An audit event (`action: 'video.download.prepare'`) is written after each successful prepare call.**
 
@@ -1375,7 +1375,7 @@ Any other hostname returns 400.
 
 #### GET /video/download/stream?token=...
 
-**Public endpoint** — consumes the signed token from `/prepare` and proxies the video bytes directly to the browser as a download.
+**Public endpoint** — consumes the signed token from `/prepare`, then runs yt-dlp internally and pipes the resulting video bytes directly to the browser as a download.
 
 This endpoint is intentionally public (no JWT `Authorization` header required). The signed token is the credential. This enables native browser download UX: the frontend can navigate directly to this URL (via `window.location` or an `<a download>` link) without buffering the video in JavaScript memory.
 
@@ -1396,7 +1396,8 @@ Content-Length: 42803176
 Cache-Control: no-store
 ```
 
-- `Content-Type` and `Content-Length` are forwarded from the upstream source.
+- `Content-Type` is always `video/mp4` (yt-dlp is instructed to select an mp4 format where possible).
+- `Content-Length` is not set — yt-dlp's output length is not known in advance.
 - `Content-Disposition` uses RFC 5987 encoding (`filename*=UTF-8''...`) to support Unicode filenames.
 - `Cache-Control: no-store` prevents the browser or any proxy from caching the response.
 

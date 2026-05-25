@@ -1287,18 +1287,21 @@ The download flow uses two calls (`POST /prepare` then `GET /stream?token=...`) 
 
 1. **Browser downloads cannot send Authorization headers.** Native `<a download>` navigation and `window.location` assignments carry no custom headers. A separate, self-contained credential is required.
 2. **`fetch()` + `Blob` would buffer the entire video in JS memory.** Videos can be several hundred megabytes; buffering them client-side is not viable.
-3. **No second yt-dlp call at stream time.** The resolved upstream URL is embedded in the JWT payload. The stream endpoint only verifies the token and opens an HTTP connection to the embedded URL — no subprocess is spawned.
+3. **yt-dlp is invoked twice per download.** The first call (`prepare`) uses `-j` (JSON dump) to obtain title, extension, and filesize for the response and audit event, without downloading anything. The second call (`stream`) uses `-o -` to write the video bytes to stdout, which the API pipes directly to the HTTP response. Both invocations use the same `spawn(args-array, { stdio: ... })` pattern — no shell involved, `--` separator before the URL.
 
-Tokens are signed JWTs with `aud: 'video-download'` and a 120 s TTL; replay within that window is harmless (the user re-downloads the same upstream URL). Each token carries a `jti` UUID field that remains useful as a request correlation identifier in logs.
+Tokens are signed JWTs with `aud: 'video-download'` and a 120 s TTL. The token embeds the original user-supplied URL (not a resolved CDN URL); replay within the TTL window causes a second yt-dlp download of the same source URL, which is harmless. Each token carries a `jti` UUID field that remains useful as a request correlation identifier in logs.
 
-Because the stream endpoint is public (no JWT guard), it does not have access to a user identity and cannot write a meaningful audit event. The `POST /prepare` call writes an `audit_event` row (`action: 'video.download.prepare'`, `targetType: 'video'`, `targetId: <hostname>`, `meta: { url, title, ext, filesize }`) immediately after yt-dlp resolves the video. Operators can correlate a stream request with a prepare event by matching timing; the original URL and title are available in the prepare audit record.
+The signed token does **not** contain a forwarded upstream CDN URL or CDN headers. yt-dlp handles all CDN negotiation, cookie handling, and anti-bot measures itself on the second invocation. This eliminates the class of 403 failures that occur when a server-side HTTP client tries to replay CDN session cookies that are tied to yt-dlp's session.
+
+Because the stream endpoint is public (no JWT guard), it does not have access to a user identity and cannot write a meaningful audit event. The `POST /prepare` call writes an `audit_event` row (`action: 'video.download.prepare'`, `targetType: 'video'`, `targetId: <hostname>`, `meta: { url, title, ext, filesize }`) immediately after yt-dlp resolves the video metadata. Operators can correlate a stream request with a prepare event by matching timing; the original URL and title are available in the prepare audit record.
 
 ### Operational Notes
 
 - **Keep yt-dlp current.** Video platforms regularly update their APIs and yt-dlp releases corresponding fixes. Pinning yt-dlp to a specific version in the Dockerfile is a known follow-up task; in the meantime, the base image installs the latest release via `pip3 install yt-dlp`.
-- **yt-dlp stderr is logged at `warn` level.** The full stderr output from failed yt-dlp invocations is written to the application log so operators can diagnose platform-specific failures. Only a sanitized, single-line excerpt (HTML/shell special characters stripped, truncated to 200 characters) is returned to the caller in the 422 response body.
-- **Geo-blocked and private videos surface as 422.** The service scans stderr for keywords (`private`, `unavailable`, `geo`, `removed`, `not available`) and maps matches to `UnprocessableEntityException`. All other non-zero exits map to `502 Bad Gateway`.
-- **Stream timeout.** The upstream HTTP connection used for proxying has a hard five-minute cap (`streamTimeoutMs: 300_000`). Client disconnects abort the upstream socket immediately to free resources.
+- **yt-dlp stderr is logged at `warn` level.** The full stderr output from failed yt-dlp invocations is written to the application log so operators can diagnose platform-specific failures. Only a sanitized, single-line excerpt (HTML/shell special characters stripped, truncated to 200 characters) is returned to the caller in the 422 response body (prepare phase only).
+- **Geo-blocked and private videos surface as 422.** The service scans stderr for keywords (`private`, `unavailable`, `geo`, `removed`, `not available`) and maps matches to `UnprocessableEntityException`. All other non-zero exits from the prepare phase map to `502 Bad Gateway`.
+- **Stream timeout.** The yt-dlp subprocess used for streaming has a hard five-minute cap (`streamTimeoutMs: 300_000`). The process is sent `SIGTERM` (then `SIGKILL` after 3 seconds) on timeout or client disconnect.
+- **Platform re-validation at stream time.** `streamToClient` calls `validatePlatform()` on the original URL extracted from the token before spawning yt-dlp. This provides defense-in-depth in case the allowlist changes between prepare and stream, or if a future code path mints tokens via a different route.
 
 ---
 
