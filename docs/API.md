@@ -1312,7 +1312,7 @@ Two-call pattern: `prepare` resolves the upstream URL and mints a short-lived to
 
 #### POST /video/download/prepare
 
-Validates the URL against a platform allowlist, runs `yt-dlp` to resolve the upstream direct URL, and returns a single-use signed token.
+Validates the URL against a platform allowlist, runs `yt-dlp` to resolve the upstream direct URL, and returns a signed token.
 
 **Auth:** JWT Bearer token — requires `video:download` permission.
 
@@ -1357,7 +1357,6 @@ Any other hostname returns 400.
 **Token properties:**
 - JWT signed with `JWT_SECRET`, audience `video-download`
 - Expires in 120 seconds
-- Single-use: the token is invalidated on first call to `/stream`
 - Embeds the resolved upstream URL — no second yt-dlp call occurs at stream time
 
 **An audit event (`action: 'video.download.prepare'`) is written after each successful prepare call.**
@@ -1405,7 +1404,7 @@ Cache-Control: no-store
 
 | Status | Condition |
 |--------|-----------|
-| 401 | Token is missing, has an invalid signature, is expired, or has already been used |
+| 401 | Token is missing, has an invalid signature, or is expired |
 | 502 | Upstream connection to the video source failed |
 
 **No audit event is written for stream calls** — the prepare call already records the intent. Admins can correlate via the `video.download.prepare` audit event.

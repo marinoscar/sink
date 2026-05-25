@@ -66,29 +66,11 @@ interface YtDlpResult {
 export class VideoService {
   private readonly logger = new Logger(VideoService.name);
 
-  /**
-   * In-memory single-use JTI store: jti -> expiry timestamp (ms since epoch).
-   * Entries are evicted lazily on each access and by a periodic cleanup.
-   */
-  private readonly usedJtis = new Map<string, number>();
-
-  private cleanupInterval: ReturnType<typeof setInterval>;
-
   constructor(
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
-  ) {
-    // Clean up expired JTIs every 5 minutes
-    this.cleanupInterval = setInterval(
-      () => this.evictExpiredJtis(),
-      5 * 60 * 1000,
-    );
-  }
-
-  onModuleDestroy() {
-    clearInterval(this.cleanupInterval);
-  }
+  ) {}
 
   // ===========================================================================
   // Public API
@@ -141,8 +123,9 @@ export class VideoService {
   }
 
   /**
-   * Verify the signed download token and mark it as used.
-   * Returns the resolved upstream URL and filename.
+   * Verify the signed download token and return the upstream URL and filename.
+   * Replay within the 120-second TTL window is allowed — the user simply
+   * re-downloads the same upstream URL, which is harmless.
    */
   async consumeToken(
     token: string,
@@ -159,16 +142,6 @@ export class VideoService {
     } catch {
       throw new UnauthorizedException('Invalid or expired download token');
     }
-
-    // Check single-use: evict stale entries first, then check
-    this.evictExpiredJtis();
-    if (this.usedJtis.has(payload.jti)) {
-      throw new UnauthorizedException('Download token has already been used');
-    }
-
-    // Mark as used with its expiry so cleanup can remove it later
-    const expiresAtMs = (payload.exp ?? 0) * 1000;
-    this.usedJtis.set(payload.jti, expiresAtMs);
 
     return { upstreamUrl: payload.upstream, filename: payload.filename, headers: payload.headers };
   }
@@ -464,15 +437,6 @@ export class VideoService {
     } catch (err) {
       // Audit failures must never block the response
       this.logger.warn({ err }, 'Failed to write video download audit event');
-    }
-  }
-
-  private evictExpiredJtis(): void {
-    const now = Date.now();
-    for (const [jti, expiresAt] of this.usedJtis.entries()) {
-      if (expiresAt <= now) {
-        this.usedJtis.delete(jti);
-      }
     }
   }
 }

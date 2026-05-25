@@ -145,7 +145,6 @@ describe('VideoService', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
-    clearInterval((service as any).cleanupInterval);
   });
 
   // =========================================================================
@@ -233,10 +232,6 @@ describe('VideoService', () => {
       }).compile();
 
       realService = module.get<VideoService>(VideoService);
-    });
-
-    afterEach(() => {
-      clearInterval((realService as any).cleanupInterval);
     });
 
     it('should verify a freshly signed token and return upstream URL and filename', async () => {
@@ -329,31 +324,27 @@ describe('VideoService', () => {
       await expect(expiredService.consumeToken(token)).rejects.toThrow(
         UnauthorizedException,
       );
-
-      clearInterval((expiredService as any).cleanupInterval);
     });
 
-    it('should throw UnauthorizedException on second use of the same token (single-use)', async () => {
+    it('should allow the same valid token to be consumed twice (replay within TTL is permitted)', async () => {
       spawnMock.mockImplementation(() =>
         makeFakeProcess({
           exitCode: 0,
-          stdout: JSON.stringify({ url: 'https://cdn.example.com/v.mp4', ext: 'mp4', title: 'Single Use', filesize: 200 }),
+          stdout: JSON.stringify({ url: 'https://cdn.example.com/v.mp4', ext: 'mp4', title: 'Replay Video', filesize: 200 }),
           stderr: '',
         }),
       );
 
       const { token } = await realService.prepareDownload(
         'https://www.youtube.com/watch?v=abc',
-        'user-once',
+        'user-replay',
       );
 
-      // First use: should succeed
-      await expect(realService.consumeToken(token)).resolves.toBeDefined();
+      const first = await realService.consumeToken(token);
+      const second = await realService.consumeToken(token);
 
-      // Second use: should be rejected
-      await expect(realService.consumeToken(token)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      expect(first).toMatchObject({ upstreamUrl: 'https://cdn.example.com/v.mp4', filename: 'Replay Video.mp4' });
+      expect(second).toMatchObject({ upstreamUrl: 'https://cdn.example.com/v.mp4', filename: 'Replay Video.mp4' });
     });
   });
 

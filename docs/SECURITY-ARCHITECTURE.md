@@ -1289,7 +1289,7 @@ The download flow uses two calls (`POST /prepare` then `GET /stream?token=...`) 
 2. **`fetch()` + `Blob` would buffer the entire video in JS memory.** Videos can be several hundred megabytes; buffering them client-side is not viable.
 3. **No second yt-dlp call at stream time.** The resolved upstream URL is embedded in the JWT payload. The stream endpoint only verifies the token and opens an HTTP connection to the embedded URL — no subprocess is spawned.
 
-Tokens are standard JWTs signed with `JWT_SECRET` (the same secret used for access tokens), audience claim set to `video-download`, and a 120-second TTL. Each token carries a `jti` (JWT ID) UUID. On the first call to `/stream`, the `jti` is recorded in an in-memory map keyed to the token's expiry timestamp; any subsequent attempt to use the same token is rejected with `401`. The map is lazily evicted on each access and also purged by a background interval every five minutes.
+Tokens are signed JWTs with `aud: 'video-download'` and a 120 s TTL; replay within that window is harmless (the user re-downloads the same upstream URL). Each token carries a `jti` UUID field that remains useful as a request correlation identifier in logs.
 
 Because the stream endpoint is public (no JWT guard), it does not have access to a user identity and cannot write a meaningful audit event. The `POST /prepare` call writes an `audit_event` row (`action: 'video.download.prepare'`, `targetType: 'video'`, `targetId: <hostname>`, `meta: { url, title, ext, filesize }`) immediately after yt-dlp resolves the video. Operators can correlate a stream request with a prepare event by matching timing; the original URL and title are available in the prepare audit record.
 
