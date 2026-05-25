@@ -97,13 +97,13 @@ export class VideoController {
   ): Promise<void> {
     this.logger.log('Stream video download request');
 
-    const { upstreamUrl, filename } = await this.videoService.consumeToken(token);
+    const { upstreamUrl, filename, headers } = await this.videoService.consumeToken(token);
 
     this.logger.log(`Streaming video filename=${filename}`);
 
     // Hijack the Fastify reply so it won't try to finalize the response,
     // then stream directly to the raw Node.js ServerResponse.
     reply.hijack();
-    await this.videoService.streamToClient(upstreamUrl, filename, reply.raw);
+    await this.videoService.streamToClient(upstreamUrl, filename, reply.raw, headers);
   }
 }

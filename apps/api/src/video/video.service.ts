@@ -46,6 +46,7 @@ interface VideoDownloadTokenPayload {
   filename: string;
   original: string;
   jti: string;
+  headers?: Record<string, string>;
   exp?: number;
 }
 
@@ -58,6 +59,7 @@ interface YtDlpResult {
   ext: string;
   title: string;
   filesize?: number;
+  headers?: Record<string, string>;
 }
 
 @Injectable()
@@ -120,6 +122,7 @@ export class VideoService {
         filename,
         original: rawUrl,
         jti,
+        headers: ytResult.headers,
       } satisfies Omit<VideoDownloadTokenPayload, 'exp'>,
       {
         expiresIn: ttl,
@@ -143,7 +146,7 @@ export class VideoService {
    */
   async consumeToken(
     token: string,
-  ): Promise<{ upstreamUrl: string; filename: string }> {
+  ): Promise<{ upstreamUrl: string; filename: string; headers?: Record<string, string> }> {
     let payload: VideoDownloadTokenPayload;
     try {
       payload = await this.jwtService.verifyAsync<VideoDownloadTokenPayload>(
@@ -167,72 +170,133 @@ export class VideoService {
     const expiresAtMs = (payload.exp ?? 0) * 1000;
     this.usedJtis.set(payload.jti, expiresAtMs);
 
-    return { upstreamUrl: payload.upstream, filename: payload.filename };
+    return { upstreamUrl: payload.upstream, filename: payload.filename, headers: payload.headers };
   }
 
   /**
    * Open an HTTP/HTTPS stream to upstreamUrl and pipe it to the raw Node
    * ServerResponse. Sets Content-Type, Content-Length, Content-Disposition,
    * and Cache-Control. Aborts on client disconnect. Hard 5-minute cap.
+   * Follows up to 5 redirects. Returns 502 to the client if the upstream
+   * responds with an error status.
    */
   async streamToClient(
     upstreamUrl: string,
     filename: string,
     rawResponse: ServerResponse,
+    headers?: Record<string, string>,
   ): Promise<void> {
     const streamTimeoutMs = this.configService.get<number>(
       'video.streamTimeoutMs',
       300_000,
     );
 
-    await new Promise<void>((resolve, reject) => {
-      const parsedUpstream = new URL(upstreamUrl);
-      const transport = parsedUpstream.protocol === 'https:' ? https : http;
+    const MAX_REDIRECTS = 5;
 
-      const req = transport.get(upstreamUrl, (upstreamRes) => {
-        const contentType =
-          upstreamRes.headers['content-type'] ?? 'video/mp4';
-        const contentLength = upstreamRes.headers['content-length'];
-        const encodedFilename = encodeRfc5987(filename);
+    const fetchUrl = (url: string, redirectsLeft: number): Promise<void> =>
+      new Promise<void>((resolve, reject) => {
+        const parsedUpstream = new URL(url);
+        const transport = parsedUpstream.protocol === 'https:' ? https : http;
 
-        rawResponse.setHeader('Content-Type', contentType);
-        rawResponse.setHeader(
-          'Content-Disposition',
-          `attachment; filename*=UTF-8''${encodedFilename}`,
-        );
-        rawResponse.setHeader('Cache-Control', 'no-store');
-        if (contentLength) {
-          rawResponse.setHeader('Content-Length', contentLength);
-        }
+        const req = transport.get(url, { headers: headers ?? {} }, (upstreamRes) => {
+          const status = upstreamRes.statusCode ?? 0;
 
-        // Abort upstream on client disconnect
-        rawResponse.on('close', () => {
-          req.destroy();
+          // Handle redirects
+          if (
+            [301, 302, 303, 307, 308].includes(status) &&
+            upstreamRes.headers['location']
+          ) {
+            upstreamRes.resume(); // drain the redirect body
+            if (redirectsLeft <= 0) {
+              this.logger.warn(`Upstream redirect limit exceeded for ${url}`);
+              rawResponse.statusCode = 502;
+              rawResponse.end();
+              resolve();
+              return;
+            }
+            const location = upstreamRes.headers['location'] as string;
+            // Resolve relative redirects against the current URL
+            const nextUrl = new URL(location, url).toString();
+            this.logger.log(
+              `Upstream redirect ${status} -> ${nextUrl} (${redirectsLeft - 1} left)`,
+            );
+            fetchUrl(nextUrl, redirectsLeft - 1).then(resolve).catch(reject);
+            return;
+          }
+
+          // Bail on upstream error responses
+          if (status >= 400) {
+            const bodyChunks: Buffer[] = [];
+            upstreamRes.on('data', (chunk: Buffer) => {
+              if (bodyChunks.reduce((acc, c) => acc + c.length, 0) < 200) {
+                bodyChunks.push(chunk);
+              }
+            });
+            upstreamRes.on('end', () => {
+              const body = Buffer.concat(bodyChunks).toString('utf8').slice(0, 200);
+              this.logger.warn(
+                { upstreamStatus: status, body },
+                `Upstream responded with ${status} for ${url}`,
+              );
+              rawResponse.statusCode = 502;
+              rawResponse.end();
+              resolve();
+            });
+            return;
+          }
+
+          const contentType =
+            upstreamRes.headers['content-type'] ?? 'video/mp4';
+          const contentLength = upstreamRes.headers['content-length'];
+          const encodedFilename = encodeRfc5987(filename);
+
+          rawResponse.setHeader('Content-Type', contentType);
+          rawResponse.setHeader(
+            'Content-Disposition',
+            `attachment; filename*=UTF-8''${encodedFilename}`,
+          );
+          rawResponse.setHeader('Cache-Control', 'no-store');
+          if (contentLength) {
+            rawResponse.setHeader('Content-Length', contentLength);
+          }
+
+          // Abort upstream on client disconnect
+          rawResponse.on('close', () => {
+            req.destroy();
+          });
+
+          pipeline(upstreamRes, rawResponse)
+            .then(resolve)
+            .catch((err) => {
+              // Ignore premature close errors (client disconnected)
+              if (
+                err?.code === 'ERR_STREAM_PREMATURE_CLOSE' ||
+                err?.code === 'ECONNRESET' ||
+                err?.code === 'EPIPE'
+              ) {
+                resolve();
+              } else {
+                reject(err);
+              }
+            });
         });
 
-        pipeline(upstreamRes, rawResponse)
-          .then(resolve)
-          .catch((err) => {
-            // Ignore premature close errors (client disconnected)
-            if (
-              err?.code === 'ERR_STREAM_PREMATURE_CLOSE' ||
-              err?.code === 'ECONNRESET' ||
-              err?.code === 'EPIPE'
-            ) {
-              resolve();
-            } else {
-              reject(err);
-            }
-          });
+        req.on('error', reject);
+
+        // Hard 5-minute cap
+        req.setTimeout(streamTimeoutMs, () => {
+          req.destroy(new Error('Upstream stream timeout'));
+        });
       });
 
-      req.on('error', reject);
+    if (headers && Object.keys(headers).length > 0) {
+      this.logger.log(
+        { headerKeys: Object.keys(headers) },
+        'Forwarding upstream headers on video stream',
+      );
+    }
 
-      // Hard 5-minute cap
-      req.setTimeout(streamTimeoutMs, () => {
-        req.destroy(new Error('Upstream stream timeout'));
-      });
-    });
+    await fetchUrl(upstreamUrl, MAX_REDIRECTS);
   }
 
   // ===========================================================================
@@ -335,6 +399,23 @@ export class VideoService {
           return;
         }
 
+        // Extract http_headers defensively: only include if it's a non-empty
+        // object whose values are all strings.
+        const rawHeaders = info['http_headers'];
+        let httpHeaders: Record<string, string> | undefined;
+        if (
+          rawHeaders !== null &&
+          typeof rawHeaders === 'object' &&
+          !Array.isArray(rawHeaders)
+        ) {
+          const entries = Object.entries(rawHeaders as Record<string, unknown>).filter(
+            ([, v]) => typeof v === 'string',
+          ) as [string, string][];
+          if (entries.length > 0) {
+            httpHeaders = Object.fromEntries(entries);
+          }
+        }
+
         resolve({
           url,
           ext: (info['ext'] as string | undefined) ?? 'mp4',
@@ -342,6 +423,7 @@ export class VideoService {
           filesize:
             (info['filesize'] as number | undefined) ??
             (info['filesize_approx'] as number | undefined),
+          headers: httpHeaders,
         });
       });
     });
