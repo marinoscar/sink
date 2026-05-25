@@ -21,6 +21,7 @@ import {
   UploadFile as UploadFileIcon,
   Sms as SmsIcon,
   PhoneAndroid as PhoneAndroidIcon,
+  VideoLibrary as VideoLibraryIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -92,6 +93,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       icon: <UploadFileIcon />,
       path: '/calendar/import',
       visible: isAdmin,
+    },
+    {
+      label: 'Video Downloader',
+      icon: <VideoLibraryIcon />,
+      path: '/video/download',
+      visible: true,
     },
   ];
 

@@ -24,6 +24,7 @@ const CalendarImportPage = lazy(() => import('./pages/CalendarImportPage'));
 const DevicesPage = lazy(() => import('./pages/DevicesPage'));
 const MessagesPage = lazy(() => import('./pages/MessagesPage'));
 const GetAppPage = lazy(() => import('./pages/GetAppPage'));
+const VideoDownloaderPage = lazy(() => import('./pages/VideoDownloaderPage'));
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -64,6 +65,7 @@ function AppRoutes() {
                 <Route path="/calendar/import" element={<CalendarImportPage />} />
                 <Route path="/devices" element={<DevicesPage />} />
                 <Route path="/messages" element={<MessagesPage />} />
+                <Route path="/video/download" element={<VideoDownloaderPage />} />
               </Route>
             </Route>
 
