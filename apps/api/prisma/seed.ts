@@ -50,6 +50,9 @@ const PERMISSIONS = [
   { name: 'device_text_messages:read', description: 'Read own device text messages' },
   { name: 'device_text_messages:write', description: 'Relay text messages from device' },
   { name: 'device_text_messages:read_any', description: 'Read any user device text messages' },
+
+  // Video downloader
+  { name: 'video:download', description: 'Download videos from supported platforms (YouTube, X, Instagram, TikTok, Facebook)' },
 ] as const;
 
 // Role to permissions mapping
@@ -70,6 +73,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'device_text_messages:read',
     'device_text_messages:write',
     'device_text_messages:read_any',
+    'video:download',
   ],
   contributor: [
     'user_settings:read',
@@ -78,6 +82,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'storage:write',
     'device_text_messages:read',
     'device_text_messages:write',
+    'video:download',
   ],
   viewer: [
     'user_settings:read',

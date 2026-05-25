@@ -85,6 +85,13 @@ export default () => {
 
   logLevel: process.env.LOG_LEVEL || 'info',
 
+  // Video downloader
+  video: {
+    ytDlpTimeoutMs: parseInt(process.env.VIDEO_YTDLP_TIMEOUT_MS || '15000', 10),
+    streamTimeoutMs: parseInt(process.env.VIDEO_STREAM_TIMEOUT_MS || '300000', 10),
+    tokenTtlSeconds: parseInt(process.env.VIDEO_TOKEN_TTL_SECONDS || '120', 10),
+  },
+
   // LLM (OpenAI-compatible)
   llm: {
     apiKey: process.env.LLM_API_KEY || '',

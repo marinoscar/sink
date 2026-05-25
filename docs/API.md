@@ -1304,6 +1304,114 @@ The storage system provides file upload and management capabilities with support
 
 ---
 
+### Video Downloader
+
+Two-call pattern: `prepare` resolves the upstream URL and mints a short-lived token; `stream` consumes that token and proxies the bytes to the browser. This design avoids buffering multi-hundred-MB files in JS memory and works with native browser `<a download>` navigation.
+
+**Requires `video:download` permission** (granted to Admin and Contributor by default; Viewer cannot download videos).
+
+#### POST /video/download/prepare
+
+Validates the URL against a platform allowlist, runs `yt-dlp` to resolve the upstream direct URL, and returns a single-use signed token.
+
+**Auth:** JWT Bearer token — requires `video:download` permission.
+
+**Request Body:**
+```json
+{
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `url` | string | Yes | Must be a valid URL; max 2048 characters; host must be a supported platform |
+
+**Supported platforms:**
+
+| Platform | Accepted hostnames |
+|----------|--------------------|
+| YouTube | `youtube.com`, `www.youtube.com`, `m.youtube.com`, `mobile.youtube.com`, `youtu.be`, `youtube-nocookie.com` |
+| X / Twitter | `twitter.com`, `www.twitter.com`, `x.com`, `www.x.com`, `mobile.x.com`, `mobile.twitter.com` |
+| Instagram | `instagram.com`, `www.instagram.com` |
+| TikTok | `tiktok.com`, `www.tiktok.com`, `m.tiktok.com`, `vm.tiktok.com`, `vt.tiktok.com` |
+| Facebook | `facebook.com`, `www.facebook.com`, `m.facebook.com`, `web.facebook.com`, `business.facebook.com`, `fb.watch` |
+
+Any other hostname returns 400.
+
+**Response (201):**
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "filename": "Never Gonna Give You Up.mp4",
+  "sizeBytes": 42803176
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `token` | string | Signed download token — pass to `/video/download/stream?token=...` |
+| `filename` | string | Sanitized filename with extension (use as the downloaded file name) |
+| `sizeBytes` | number \| undefined | Upstream file size in bytes, if reported by yt-dlp |
+
+**Token properties:**
+- JWT signed with `JWT_SECRET`, audience `video-download`
+- Expires in 120 seconds
+- Single-use: the token is invalidated on first call to `/stream`
+- Embeds the resolved upstream URL — no second yt-dlp call occurs at stream time
+
+**An audit event (`action: 'video.download.prepare'`) is written after each successful prepare call.**
+
+**Error Cases:**
+
+| Status | Condition |
+|--------|-----------|
+| 400 | Invalid URL format or unsupported platform |
+| 401 | Missing or invalid JWT |
+| 403 | JWT valid but user lacks `video:download` permission |
+| 422 | Video is private, unavailable, geo-blocked, or removed (friendly message derived from yt-dlp stderr) |
+| 502 | yt-dlp failed to resolve the URL for any other reason |
+
+---
+
+#### GET /video/download/stream?token=...
+
+**Public endpoint** — consumes the signed token from `/prepare` and proxies the video bytes directly to the browser as a download.
+
+This endpoint is intentionally public (no JWT `Authorization` header required). The signed token is the credential. This enables native browser download UX: the frontend can navigate directly to this URL (via `window.location` or an `<a download>` link) without buffering the video in JavaScript memory.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `token` | string | Yes | Signed download token from `/video/download/prepare` |
+
+**Response (200):**
+
+Streamed binary file with the following headers:
+
+```
+Content-Disposition: attachment; filename*=UTF-8''Never%20Gonna%20Give%20You%20Up.mp4
+Content-Type: video/mp4
+Content-Length: 42803176
+Cache-Control: no-store
+```
+
+- `Content-Type` and `Content-Length` are forwarded from the upstream source.
+- `Content-Disposition` uses RFC 5987 encoding (`filename*=UTF-8''...`) to support Unicode filenames.
+- `Cache-Control: no-store` prevents the browser or any proxy from caching the response.
+
+**Error Cases:**
+
+| Status | Condition |
+|--------|-----------|
+| 401 | Token is missing, has an invalid signature, is expired, or has already been used |
+| 502 | Upstream connection to the video source failed |
+
+**No audit event is written for stream calls** — the prepare call already records the intent. Admins can correlate via the `video.download.prepare` audit event.
+
+---
+
 ### Health
 
 **Public endpoints** - Used for Kubernetes liveness/readiness probes.

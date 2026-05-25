@@ -385,3 +385,13 @@ export async function getDeviceTextMessageSenders(): Promise<string[]> {
 export async function getDeviceTextMessageDevices(): Promise<UserDevice[]> {
   return api.get<UserDevice[]>('/device-text-messages/devices');
 }
+
+// Video Downloader API
+export async function prepareVideoDownload(url: string): Promise<{ token: string; filename: string; sizeBytes?: number }> {
+  return api.post('/video/download/prepare', { url });
+}
+
+export function getVideoStreamUrl(token: string): string {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
+  return `${baseUrl}/video/download/stream?token=${encodeURIComponent(token)}`;
+}
