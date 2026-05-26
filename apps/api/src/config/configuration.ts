@@ -90,7 +90,13 @@ export default () => {
     ytDlpTimeoutMs: parseInt(process.env.VIDEO_YTDLP_TIMEOUT_MS || '15000', 10),
     streamTimeoutMs: parseInt(process.env.VIDEO_STREAM_TIMEOUT_MS || '300000', 10),
     tokenTtlSeconds: parseInt(process.env.VIDEO_TOKEN_TTL_SECONDS || '120', 10),
-    youtubeCookiesPath: process.env.YOUTUBE_COOKIES_PATH ?? '/run/secrets/youtube-cookies.txt',
+    cookiesPaths: {
+      youtube: process.env.YOUTUBE_COOKIES_PATH ?? '/run/secrets/youtube-cookies.txt',
+      instagram: process.env.INSTAGRAM_COOKIES_PATH ?? '/run/secrets/instagram-cookies.txt',
+      tiktok: process.env.TIKTOK_COOKIES_PATH ?? '/run/secrets/tiktok-cookies.txt',
+      x: process.env.X_COOKIES_PATH ?? '/run/secrets/x-cookies.txt',
+      facebook: process.env.FACEBOOK_COOKIES_PATH ?? '/run/secrets/facebook-cookies.txt',
+    },
   },
 
   // LLM (OpenAI-compatible)

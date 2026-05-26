@@ -147,7 +147,13 @@ async function buildModule(opts: {
     if (key === 'video.tokenTtlSeconds') return tokenTtl;
     if (key === 'video.ytDlpTimeoutMs') return 15_000;
     if (key === 'video.streamTimeoutMs') return 300_000;
-    if (key === 'video.youtubeCookiesPath') return '/run/secrets/youtube-cookies.txt';
+    if (key === 'video.cookiesPaths') return {
+      youtube: '/run/secrets/youtube-cookies.txt',
+      instagram: '/run/secrets/instagram-cookies.txt',
+      tiktok: '/run/secrets/tiktok-cookies.txt',
+      x: '/run/secrets/x-cookies.txt',
+      facebook: '/run/secrets/facebook-cookies.txt',
+    };
     return defaultVal;
   });
 
@@ -277,7 +283,7 @@ describe('VideoService', () => {
                 if (key === 'jwt.secret') return JWT_SECRET;
                 if (key === 'video.tokenTtlSeconds') return 30;
                 if (key === 'video.ytDlpTimeoutMs') return 15_000;
-                if (key === 'video.youtubeCookiesPath') return '/run/secrets/youtube-cookies.txt';
+                if (key === 'video.cookiesPaths') return { youtube: '/run/secrets/youtube-cookies.txt', instagram: '/run/secrets/instagram-cookies.txt', tiktok: '/run/secrets/tiktok-cookies.txt', x: '/run/secrets/x-cookies.txt', facebook: '/run/secrets/facebook-cookies.txt' };
                 return defaultVal;
               }),
             },
@@ -351,7 +357,7 @@ describe('VideoService', () => {
                 if (key === 'jwt.secret') return JWT_SECRET;
                 if (key === 'video.tokenTtlSeconds') return 1; // 1-second TTL
                 if (key === 'video.ytDlpTimeoutMs') return 15_000;
-                if (key === 'video.youtubeCookiesPath') return '/run/secrets/youtube-cookies.txt';
+                if (key === 'video.cookiesPaths') return { youtube: '/run/secrets/youtube-cookies.txt', instagram: '/run/secrets/instagram-cookies.txt', tiktok: '/run/secrets/tiktok-cookies.txt', x: '/run/secrets/x-cookies.txt', facebook: '/run/secrets/facebook-cookies.txt' };
                 return defaultVal;
               }),
             },
@@ -720,12 +726,10 @@ describe('VideoService', () => {
   });
 
   // =========================================================================
-  // 6. getCookiesArgsForUrl — cookie injection logic
+  // 6. getCookiesArgsForUrl — per-platform cookie injection logic
   // =========================================================================
 
   describe('getCookiesArgsForUrl (via spawn args)', () => {
-    const COOKIES_PATH = '/run/secrets/youtube-cookies.txt';
-
     beforeEach(() => {
       mockJwtSign.mockResolvedValue('signed-token');
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
@@ -733,72 +737,179 @@ describe('VideoService', () => {
       existsSyncMock.mockReturnValue(false);
     });
 
-    it('should pass --cookies flag for YouTube URL when cookies file exists', async () => {
-      existsSyncMock.mockReturnValue(true);
+    // -----------------------------------------------------------------------
+    // 6a. Cookies file present → --cookies injected (one test per platform)
+    // -----------------------------------------------------------------------
 
-      spawnMock.mockImplementation(() =>
-        makeFakeProcess({ exitCode: 0, stdout: VALID_YT_JSON, stderr: '' }),
-      );
+    const PLATFORM_PRESENT_CASES: Array<{
+      platform: string;
+      url: string;
+      cookiesPath: string;
+    }> = [
+      {
+        platform: 'youtube',
+        url: 'https://www.youtube.com/watch?v=abc',
+        cookiesPath: '/run/secrets/youtube-cookies.txt',
+      },
+      {
+        platform: 'instagram',
+        url: 'https://www.instagram.com/reel/abc/',
+        cookiesPath: '/run/secrets/instagram-cookies.txt',
+      },
+      {
+        platform: 'tiktok',
+        url: 'https://www.tiktok.com/@user/video/1',
+        cookiesPath: '/run/secrets/tiktok-cookies.txt',
+      },
+      {
+        platform: 'x',
+        url: 'https://x.com/user/status/1',
+        cookiesPath: '/run/secrets/x-cookies.txt',
+      },
+      {
+        platform: 'facebook',
+        url: 'https://www.facebook.com/watch/?v=1',
+        cookiesPath: '/run/secrets/facebook-cookies.txt',
+      },
+    ];
 
-      await service.prepareDownload('https://www.youtube.com/watch?v=abc', 'user-1');
+    it.each(PLATFORM_PRESENT_CASES)(
+      'should pass --cookies flag for $platform URL when cookies file exists',
+      async ({ url, cookiesPath }) => {
+        // Only the target platform's cookies file exists.
+        existsSyncMock.mockImplementation((p: unknown) => p === cookiesPath);
 
-      const spawnArgs: string[] = spawnMock.mock.calls[0][1];
-      expect(spawnArgs).toContain('--cookies');
-      expect(spawnArgs).toContain(COOKIES_PATH);
-      // --cookies must appear before --
-      expect(spawnArgs.indexOf('--cookies')).toBeLessThan(spawnArgs.indexOf('--'));
-    });
+        spawnMock.mockImplementation(() =>
+          makeFakeProcess({ exitCode: 0, stdout: VALID_YT_JSON, stderr: '' }),
+        );
 
-    it('should not pass --cookies flag for YouTube URL when cookies file is missing', async () => {
-      existsSyncMock.mockReturnValue(false);
+        await service.prepareDownload(url, 'user-1');
 
-      spawnMock.mockImplementation(() =>
-        makeFakeProcess({ exitCode: 0, stdout: VALID_YT_JSON, stderr: '' }),
-      );
+        const spawnArgs: string[] = spawnMock.mock.calls[0][1];
+        expect(spawnArgs).toContain('--cookies');
+        expect(spawnArgs).toContain(cookiesPath);
+        // --cookies must appear before the -- separator
+        expect(spawnArgs.indexOf('--cookies')).toBeLessThan(spawnArgs.indexOf('--'));
+      },
+    );
 
-      await service.prepareDownload('https://www.youtube.com/watch?v=abc', 'user-1');
+    // -----------------------------------------------------------------------
+    // 6b. Cookies file absent → no --cookies flag (one test per platform)
+    // -----------------------------------------------------------------------
 
-      const spawnArgs: string[] = spawnMock.mock.calls[0][1];
-      expect(spawnArgs).not.toContain('--cookies');
-    });
+    it.each(PLATFORM_PRESENT_CASES)(
+      'should not pass --cookies flag for $platform URL when cookies file is missing',
+      async ({ url }) => {
+        existsSyncMock.mockReturnValue(false);
 
-    it('should not pass --cookies flag for TikTok even when cookies file exists', async () => {
-      existsSyncMock.mockReturnValue(true);
+        spawnMock.mockImplementation(() =>
+          makeFakeProcess({ exitCode: 0, stdout: VALID_YT_JSON, stderr: '' }),
+        );
 
-      spawnMock.mockImplementation(() =>
-        makeFakeProcess({ exitCode: 0, stdout: VALID_YT_JSON, stderr: '' }),
-      );
+        await service.prepareDownload(url, 'user-1');
 
-      await service.prepareDownload('https://www.tiktok.com/@user/video/1', 'user-1');
+        const spawnArgs: string[] = spawnMock.mock.calls[0][1];
+        expect(spawnArgs).not.toContain('--cookies');
+      },
+    );
 
-      const spawnArgs: string[] = spawnMock.mock.calls[0][1];
-      expect(spawnArgs).not.toContain('--cookies');
-      // existsSync should never be called for non-YouTube URLs
-      expect(existsSyncMock).not.toHaveBeenCalled();
-    });
+    // -----------------------------------------------------------------------
+    // 6c. Cross-platform isolation — cookies present for platform A must NOT
+    //     be injected into a request for platform B.
+    // -----------------------------------------------------------------------
 
-    it('should throw UnprocessableEntityException with cookies message when yt-dlp returns bot-gate stderr', async () => {
-      existsSyncMock.mockReturnValue(false);
+    const CROSS_PLATFORM_CASES: Array<{
+      cookiesPlatform: string;
+      cookiesPath: string;
+      requestPlatform: string;
+      requestUrl: string;
+    }> = [
+      {
+        cookiesPlatform: 'youtube',
+        cookiesPath: '/run/secrets/youtube-cookies.txt',
+        requestPlatform: 'instagram',
+        requestUrl: 'https://www.instagram.com/reel/abc/',
+      },
+      {
+        cookiesPlatform: 'instagram',
+        cookiesPath: '/run/secrets/instagram-cookies.txt',
+        requestPlatform: 'tiktok',
+        requestUrl: 'https://www.tiktok.com/@user/video/1',
+      },
+      {
+        cookiesPlatform: 'tiktok',
+        cookiesPath: '/run/secrets/tiktok-cookies.txt',
+        requestPlatform: 'x',
+        requestUrl: 'https://x.com/user/status/1',
+      },
+      {
+        cookiesPlatform: 'facebook',
+        cookiesPath: '/run/secrets/facebook-cookies.txt',
+        requestPlatform: 'youtube',
+        requestUrl: 'https://www.youtube.com/watch?v=abc',
+      },
+    ];
 
-      spawnMock.mockImplementation(() =>
-        makeFakeProcess({
-          exitCode: 1,
-          stdout: '',
-          stderr: 'ERROR: Sign in to confirm your age. This video may be inappropriate for some users.',
-        }),
-      );
+    it.each(CROSS_PLATFORM_CASES)(
+      'should not inject $cookiesPlatform cookies into a $requestPlatform request',
+      async ({ cookiesPath, requestUrl }) => {
+        // Only the wrong platform's file exists.
+        existsSyncMock.mockImplementation((p: unknown) => p === cookiesPath);
 
-      const err = await service
-        .prepareDownload('https://www.youtube.com/watch?v=abc', 'user-1')
-        .catch((e) => e);
+        spawnMock.mockImplementation(() =>
+          makeFakeProcess({ exitCode: 0, stdout: VALID_YT_JSON, stderr: '' }),
+        );
 
-      expect(err).toBeInstanceOf(UnprocessableEntityException);
-      expect((err as UnprocessableEntityException).message).toContain(
-        'authentication cookies',
-      );
-      expect((err as UnprocessableEntityException).message).toContain(
-        'docs/youtube-cookies.md',
-      );
-    });
+        await service.prepareDownload(requestUrl, 'user-1');
+
+        const spawnArgs: string[] = spawnMock.mock.calls[0][1];
+        expect(spawnArgs).not.toContain('--cookies');
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // 6d. Bot-gate stderr → UnprocessableEntityException with platform name
+    // -----------------------------------------------------------------------
+
+    const BOT_GATE_CASES: Array<{
+      platform: string;
+      url: string;
+      stderr: string;
+    }> = [
+      {
+        platform: 'youtube',
+        url: 'https://www.youtube.com/watch?v=abc',
+        stderr: 'ERROR: Sign in to confirm your age. This video may be inappropriate for some users.',
+      },
+      {
+        platform: 'instagram',
+        url: 'https://www.instagram.com/reel/abc/',
+        stderr: 'ERROR: Requested content is not available, rate-limit reached or login required.',
+      },
+    ];
+
+    it.each(BOT_GATE_CASES)(
+      'should throw UnprocessableEntityException with platform name and docs/cookies.md for $platform bot-gate',
+      async ({ url, stderr, platform }) => {
+        existsSyncMock.mockReturnValue(false);
+
+        spawnMock.mockImplementation(() =>
+          makeFakeProcess({ exitCode: 1, stdout: '', stderr }),
+        );
+
+        const err = await service
+          .prepareDownload(url, 'user-1')
+          .catch((e) => e);
+
+        expect(err).toBeInstanceOf(UnprocessableEntityException);
+        expect((err as UnprocessableEntityException).message).toContain(
+          'authentication cookies',
+        );
+        expect((err as UnprocessableEntityException).message).toContain(platform);
+        expect((err as UnprocessableEntityException).message).toContain(
+          'docs/cookies.md',
+        );
+      },
+    );
   });
 });

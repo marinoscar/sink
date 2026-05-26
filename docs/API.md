@@ -1368,7 +1368,7 @@ Any other hostname returns 400.
 | 400 | Invalid URL format or unsupported platform |
 | 401 | Missing or invalid JWT |
 | 403 | JWT valid but user lacks `video:download` permission |
-| 422 | Video is private, unavailable, geo-blocked, or removed (friendly message derived from yt-dlp stderr); or YouTube bot-gate detected — message will read "This YouTube video requires authentication cookies. See docs/youtube-cookies.md for setup." |
+| 422 | Video is private, unavailable, geo-blocked, removed, rate-limited, or requires login (friendly message derived from yt-dlp stderr); or platform bot-gate detected — message will read "This video requires authentication cookies for \<platform\>. See docs/cookies.md for setup." |
 | 502 | yt-dlp failed to resolve the URL for any other reason |
 
 ---

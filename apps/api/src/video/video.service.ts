@@ -32,16 +32,37 @@ const PLATFORM_ERROR_MESSAGE =
 
 // Stderr patterns that indicate user-facing errors (private/unavailable video)
 const USER_FACING_STDERR_PATTERN =
-  /private|unavailable|geo|removed|not available/i;
+  /private|unavailable|geo|removed|not available|rate-limit reached|login required/i;
 
-// Stderr pattern for YouTube bot-gate (requires authentication cookies)
-const BOT_GATE_STDERR_PATTERN = /Sign in to confirm/i;
+// Stderr pattern for platform bot-gate (requires authentication cookies)
+const BOT_GATE_STDERR_PATTERN =
+  /Sign in to confirm|rate-limit reached|login required|Requested content is not available/i;
 
-// Predicate: is this URL from a YouTube hostname?
-function isYouTubeHostname(hostname: string): boolean {
-  return /^(www\.|m\.|mobile\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)$/.test(
-    hostname.toLowerCase(),
-  );
+// Supported platform identifiers
+type Platform = 'youtube' | 'instagram' | 'tiktok' | 'x' | 'facebook';
+
+/**
+ * Classify a lowercase hostname into one of the supported platforms.
+ * Regex patterns are kept in sync with ALLOWED_PLATFORMS above.
+ * Returns null if the hostname does not match any known platform.
+ */
+function classifyPlatform(hostname: string): Platform | null {
+  if (/^(www\.|m\.|mobile\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)$/.test(hostname)) {
+    return 'youtube';
+  }
+  if (/^(www\.|mobile\.)?(twitter\.com|x\.com)$/.test(hostname)) {
+    return 'x';
+  }
+  if (/^(www\.)?instagram\.com$/.test(hostname)) {
+    return 'instagram';
+  }
+  if (/^(www\.|m\.|vm\.|vt\.)?tiktok\.com$/.test(hostname)) {
+    return 'tiktok';
+  }
+  if (/^(www\.|m\.|web\.|business\.)?(facebook\.com|fb\.watch)$/.test(hostname)) {
+    return 'facebook';
+  }
+  return null;
 }
 
 // =============================================================================
@@ -83,24 +104,35 @@ export class VideoService {
   // ===========================================================================
 
   /**
-   * Returns `['--cookies', <path>]` when (a) the URL hostname is a YouTube
-   * hostname AND (b) the cookies file exists on disk. Returns `[]` otherwise.
+   * Returns `['--cookies', <path>]` when (a) the URL hostname maps to a known
+   * platform AND (b) the platform-specific cookies file exists on disk.
+   * Returns `[]` otherwise.
    *
-   * Existence is checked lazily on every call so the user can drop the file in
-   * without restarting the API container.
+   * Existence is checked lazily on every call so the user can drop any platform
+   * cookies file in without restarting the API container.
    */
   private getCookiesArgsForUrl(url: URL): string[] {
-    if (!isYouTubeHostname(url.hostname)) {
+    const hostname = url.hostname.toLowerCase();
+    const platform = classifyPlatform(hostname);
+    if (platform === null) {
       return [];
     }
-    const cookiesPath = this.configService.get<string>(
-      'video.youtubeCookiesPath',
-      '/run/secrets/youtube-cookies.txt',
+
+    const cookiesPaths = this.configService.get<Record<Platform, string>>(
+      'video.cookiesPaths',
+      {
+        youtube: '/run/secrets/youtube-cookies.txt',
+        instagram: '/run/secrets/instagram-cookies.txt',
+        tiktok: '/run/secrets/tiktok-cookies.txt',
+        x: '/run/secrets/x-cookies.txt',
+        facebook: '/run/secrets/facebook-cookies.txt',
+      },
     );
+    const cookiesPath = cookiesPaths[platform];
     if (!fs.existsSync(cookiesPath)) {
       return [];
     }
-    this.logger.log(`Using YouTube cookies for hostname=${url.hostname}`);
+    this.logger.log(`Using cookies for platform=${platform} hostname=${hostname}`);
     return ['--cookies', cookiesPath];
   }
 
@@ -405,9 +437,15 @@ export class VideoService {
           }
 
           if (BOT_GATE_STDERR_PATTERN.test(stderr)) {
+            const parsedForGate = (() => {
+              try { return new URL(userUrl); } catch { return null; }
+            })();
+            const platformName = parsedForGate
+              ? (classifyPlatform(parsedForGate.hostname.toLowerCase()) ?? 'this platform')
+              : 'this platform';
             reject(
               new UnprocessableEntityException(
-                'This YouTube video requires authentication cookies. See docs/youtube-cookies.md for setup.',
+                `This video requires authentication cookies for ${platformName}. See docs/cookies.md for setup.`,
               ),
             );
             return;
